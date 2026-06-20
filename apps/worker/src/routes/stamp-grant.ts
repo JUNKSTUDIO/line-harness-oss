@@ -6,6 +6,7 @@
 // トークンがそのまま認可情報になるため、スキャンする側のLINEログインや友だち判定は不要。
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import {
   getOrCreateUserCard,
   getCardSettings,
@@ -16,17 +17,22 @@ import {
   markCouponUsed,
   getLineAccountById,
   getFriendById,
+  isAuthorizedGrantOperator,
+  registerGrantOperator,
+  getGrantOperators,
+  removeGrantOperator,
 } from '@line-crm/db';
-import { signGrantToken, verifyGrantToken } from '../lib/qr-token.js';
-import { verifyCallerLineUserId } from '../services/liff-auth.js';
+import { signGrantToken, verifyGrantToken, signOperatorRegistrationToken, verifyOperatorRegistrationToken } from '../lib/qr-token.js';
+import { verifyCallerLineUserId, verifyCallerProfile } from '../services/liff-auth.js';
 import { applyRankUpRichMenu } from '../services/rank-rich-menu.js';
 import type { Env } from '../index.js';
 
 const stampGrant = new Hono<Env>();
 
 const TOKEN_TTL_SECONDS = 5 * 60; // 5分。スクショ再利用の実害を抑える
+const REGISTRATION_TOKEN_TTL_SECONDS = 24 * 60 * 60; // 登録用QRは24時間有効 (店内に貼っておける程度の長さ)
 
-async function resolveAccountIdFromLiff(c: import('hono').Context<Env>): Promise<string | null> {
+async function resolveAccountIdFromLiff(c: Context<Env>): Promise<string | null> {
   const liffId = c.req.query('liffId');
   if (!liffId) return null;
   const acc = await c.env.DB
@@ -34,6 +40,23 @@ async function resolveAccountIdFromLiff(c: import('hono').Context<Env>): Promise
     .bind(liffId)
     .first<{ id: string }>();
   return acc?.id ?? null;
+}
+
+/**
+ * QRスタンプ付与の不正利用防止 (超重要): トークンの有効性だけでなく、スキャンした側の
+ * LINEアカウントが事前登録済みオペレーターかどうかを必ず確認する。
+ * 未登録なら 403 を返し、呼び出し元はスタンプ付与・クーポン消し込みを実行しない。
+ */
+async function requireAuthorizedOperator(c: Context<Env>, accountId: string): Promise<{ ok: true } | { ok: false; response: Response }> {
+  const callerLineUserId = await verifyCallerLineUserId(c.req.header('Authorization'), c.env);
+  if (!callerLineUserId) {
+    return { ok: false, response: c.json({ success: false, error: 'operator_unauthenticated' }, 401) };
+  }
+  const authorized = await isAuthorizedGrantOperator(c.env.DB, accountId, callerLineUserId);
+  if (!authorized) {
+    return { ok: false, response: c.json({ success: false, error: 'operator_not_registered' }, 403) };
+  }
+  return { ok: true };
 }
 
 // GET /api/liff/stamp-cards/qr-token — お客様自身が発行 (要 idToken)
@@ -53,12 +76,16 @@ stampGrant.get('/api/liff/stamp-cards/qr-token', async (c) => {
   return c.json({ success: true, data: { token, expiresAt: exp } });
 });
 
-// GET /api/liff/stamp-cards/grant-preview?token=... — スキャンした側が見る確認画面用データ (トークンが認可情報)
+// GET /api/liff/stamp-cards/grant-preview?token=... — スキャンした側が見る確認画面用データ。
+// トークンの有効性に加え、スキャンした側 (Authorization idToken) が登録済みオペレーターであることを要求する。
 stampGrant.get('/api/liff/stamp-cards/grant-preview', async (c) => {
   const token = c.req.query('token');
   if (!token) return c.json({ success: false, error: 'token required' }, 400);
   const payload = await verifyGrantToken(c.env.API_KEY ?? 'dev-secret', token);
   if (!payload) return c.json({ success: false, error: 'invalid_or_expired_token' }, 401);
+
+  const operatorCheck = await requireAuthorizedOperator(c, payload.accountId);
+  if (!operatorCheck.ok) return operatorCheck.response;
 
   const friend = await getFriendById(c.env.DB, payload.friendId);
   if (!friend) return c.json({ success: false, error: 'friend_not_found' }, 404);
@@ -82,11 +109,15 @@ stampGrant.get('/api/liff/stamp-cards/grant-preview', async (c) => {
   });
 });
 
-// POST /api/liff/stamp-cards/grant — 実際にスタンプを付与 (トークンが認可情報)
+// POST /api/liff/stamp-cards/grant — 実際にスタンプを付与。
+// トークンの有効性に加え、スキャンした側が登録済みオペレーターであることを要求する (不正利用防止)。
 stampGrant.post('/api/liff/stamp-cards/grant', async (c) => {
   const body = await c.req.json<{ token: string; amountYen?: number }>();
   const payload = await verifyGrantToken(c.env.API_KEY ?? 'dev-secret', body.token);
   if (!payload) return c.json({ success: false, error: 'invalid_or_expired_token' }, 401);
+
+  const operatorCheck = await requireAuthorizedOperator(c, payload.accountId);
+  if (!operatorCheck.ok) return operatorCheck.response;
 
   const settings = await getCardSettings(c.env.DB, payload.accountId);
   const source = settings?.stamp_rule_type === 'per_amount' ? 'amount' : 'visit';
@@ -123,11 +154,15 @@ stampGrant.post('/api/liff/stamp-cards/grant', async (c) => {
   return c.json({ success: true, data: { stampCount: result.card.stamp_count, finalPoints: result.finalPoints, rankedUp: result.rankedUp, issuedCoupon: !!result.issuedCoupon } });
 });
 
-// POST /api/liff/coupons/:id/redeem — クーポンの消し込み (トークンが認可情報。friendIdの一致を確認)
+// POST /api/liff/coupons/:id/redeem — クーポンの消し込み。トークンの有効性 + friendId一致 +
+// スキャンした側が登録済みオペレーターであることを要求する (不正利用防止)。
 stampGrant.post('/api/liff/coupons/:id/redeem', async (c) => {
   const body = await c.req.json<{ token: string }>();
   const payload = await verifyGrantToken(c.env.API_KEY ?? 'dev-secret', body.token);
   if (!payload) return c.json({ success: false, error: 'invalid_or_expired_token' }, 401);
+
+  const operatorCheck = await requireAuthorizedOperator(c, payload.accountId);
+  if (!operatorCheck.ok) return operatorCheck.response;
 
   const coupon = await c.env.DB.prepare(`SELECT friend_id FROM user_coupons WHERE id = ?`).bind(c.req.param('id')).first<{ friend_id: string }>();
   if (!coupon || coupon.friend_id !== payload.friendId) return c.json({ success: false, error: 'not_found' }, 404);
@@ -135,6 +170,53 @@ stampGrant.post('/api/liff/coupons/:id/redeem', async (c) => {
   const result = await markCouponUsed(c.env.DB, c.req.param('id'), null);
   if (!result.success) return c.json({ success: false, error: result.error }, 409);
   return c.json({ success: true, data: null });
+});
+
+// ── スタッフ登録 (オペレーター allowlist) ──────────────────────────────────
+
+// GET /api/card-grant-operators/registration-link?accountId=xxx — 管理画面が表示する登録用QRのURLを発行
+stampGrant.get('/api/card-grant-operators/registration-link', async (c) => {
+  const accountId = c.req.query('accountId');
+  if (!accountId) return c.json({ success: false, error: 'accountId required' }, 400);
+  const account = await getLineAccountById(c.env.DB, accountId);
+  if (!account?.liff_id) return c.json({ success: false, error: 'liff_not_configured' }, 400);
+
+  const exp = Math.floor(Date.now() / 1000) + REGISTRATION_TOKEN_TTL_SECONDS;
+  const token = await signOperatorRegistrationToken(c.env.API_KEY ?? 'dev-secret', { accountId, exp });
+  const url = `https://liff.line.me/${account.liff_id}?page=stamp-card&action=register-operator&token=${encodeURIComponent(token)}`;
+  return c.json({ success: true, data: { url, expiresAt: exp } });
+});
+
+// GET /api/card-grant-operators?accountId=xxx — 登録済みオペレーター一覧 (管理画面)
+stampGrant.get('/api/card-grant-operators', async (c) => {
+  const accountId = c.req.query('accountId');
+  if (!accountId) return c.json({ success: false, error: 'accountId required' }, 400);
+  const operators = await getGrantOperators(c.env.DB, accountId);
+  return c.json({ success: true, data: operators });
+});
+
+// DELETE /api/card-grant-operators/:id — オペレーター登録の取り消し (管理画面)
+stampGrant.delete('/api/card-grant-operators/:id', async (c) => {
+  await removeGrantOperator(c.env.DB, c.req.param('id'));
+  return c.json({ success: true, data: null });
+});
+
+// POST /api/liff/stamp-cards/register-operator — スタッフが登録用QRをスキャンして開いた際に呼ぶ (要 idToken)
+stampGrant.post('/api/liff/stamp-cards/register-operator', async (c) => {
+  const body = await c.req.json<{ token: string }>();
+  const payload = await verifyOperatorRegistrationToken(c.env.API_KEY ?? 'dev-secret', body.token);
+  if (!payload) return c.json({ success: false, error: 'invalid_or_expired_token' }, 401);
+
+  const profile = await verifyCallerProfile(c.req.header('Authorization'), c.env);
+  if (!profile) return c.json({ success: false, error: 'unauthorized' }, 401);
+
+  const operator = await registerGrantOperator(c.env.DB, {
+    lineAccountId: payload.accountId,
+    lineUserId: profile.lineUserId,
+    displayName: profile.displayName,
+    pictureUrl: profile.pictureUrl,
+  });
+  return c.json({ success: true, data: operator });
 });
 
 export { stampGrant };

@@ -1,7 +1,7 @@
 // 「雨の日2倍」等の weather 型ポイント倍率ルールを、外部天気APIと連動して自動ON/OFFする。
 // Open-Meteo (https://open-meteo.com/) — APIキー不要・商用利用可の無料天気API。
-// 5分ごとのcron tickに乗せるが、外部API呼び出し自体は店舗ごとに約30分に1回へ自己スロットルする
-// (既存の insight-fetcher と同じ「self-throttled」パターン)。
+// 5分ごとのcron tickに乗せるが、外部API呼び出し自体は店舗ごとに card_settings.weather_check_interval_minutes
+// (既存の insight-fetcher と同じ「self-throttled」パターン。管理画面で間隔を設定可能)。
 
 import {
   getCardSettingsWithWeatherLocation,
@@ -9,8 +9,6 @@ import {
   getPointMultiplierRules,
   setMultiplierRuleActive,
 } from '@line-crm/db';
-
-const CHECK_INTERVAL_MS = 30 * 60_000; // 店舗ごとに約30分間隔
 
 interface OpenMeteoCurrentResponse {
   current?: { rain?: number; snowfall?: number };
@@ -38,7 +36,8 @@ export async function processWeatherMultiplierToggles(db: D1Database, now: Date)
 
   for (const settings of targets) {
     const lastChecked = settings.weather_last_checked_at ? new Date(settings.weather_last_checked_at).getTime() : 0;
-    if (now.getTime() - lastChecked < CHECK_INTERVAL_MS) continue;
+    const intervalMs = (settings.weather_check_interval_minutes ?? 30) * 60_000;
+    if (now.getTime() - lastChecked < intervalMs) continue;
     if (settings.shop_latitude == null || settings.shop_longitude == null) continue;
 
     const conditions = await fetchCurrentConditions(settings.shop_latitude, settings.shop_longitude);

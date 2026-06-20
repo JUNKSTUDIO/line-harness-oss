@@ -16,6 +16,8 @@ export interface CardSettingsRow {
   stamp_image_url: string | null;
   shop_latitude: number | null;
   shop_longitude: number | null;
+  shop_address: string | null;
+  weather_check_interval_minutes: number;
   weather_last_checked_at: string | null;
   created_at: string;
   updated_at: string;
@@ -87,8 +89,8 @@ export async function upsertCardSettings(
            line_account_id, stamp_rule_type, amount_per_stamp, signup_bonus_stamps,
            rank_enabled, flat_goal_stamps, card_expiry_months, default_coupon_validity_days,
            reminder_days_before, reservation_url, stamp_image_url, shop_latitude, shop_longitude,
-           created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           shop_address, weather_check_interval_minutes, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         lineAccountId,
@@ -104,6 +106,8 @@ export async function upsertCardSettings(
         input.stamp_image_url ?? null,
         input.shop_latitude ?? null,
         input.shop_longitude ?? null,
+        input.shop_address ?? null,
+        input.weather_check_interval_minutes ?? 30,
         now,
         now,
       )

@@ -142,9 +142,20 @@ export interface CardSettings {
   stamp_image_url: string | null
   shop_latitude: number | null
   shop_longitude: number | null
+  shop_address: string | null
+  weather_check_interval_minutes: number
   weather_last_checked_at?: string | null
   created_at?: string
   updated_at?: string
+}
+
+export interface CardGrantOperator {
+  id: string
+  line_account_id: string
+  line_user_id: string
+  display_name: string | null
+  picture_url: string | null
+  registered_at: string
 }
 
 export interface CardRank {
@@ -473,6 +484,20 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify(body),
       }),
+    geocodeAddress: (accountId: string, address: string) =>
+      fetchApi<ApiResponse<CardSettings>>(`/api/card-settings/geocode-address?accountId=${accountId}`, {
+        method: 'POST',
+        body: JSON.stringify({ address }),
+      }),
+  },
+
+  cardGrantOperators: {
+    list: (accountId: string) =>
+      fetchApi<ApiResponse<CardGrantOperator[]>>(`/api/card-grant-operators?accountId=${accountId}`),
+    registrationLink: (accountId: string) =>
+      fetchApi<ApiResponse<{ url: string; expiresAt: number }>>(`/api/card-grant-operators/registration-link?accountId=${accountId}`),
+    remove: (id: string) =>
+      fetchApi<ApiResponse<null>>(`/api/card-grant-operators/${id}`, { method: 'DELETE' }),
   },
 
   cardRanks: {

@@ -30,6 +30,7 @@ export * from './message-templates';
 export * from './rich-menus';
 export * from './stamp-cards';
 export * from './coupons';
+export * from './card-grant-operators';
 
 /**
  * Thin wrapper around D1Database.

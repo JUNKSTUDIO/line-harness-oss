@@ -1,12 +1,17 @@
-// QRコード経由のスタッフ向けスタンプ付与/クーポン消し込みフロー用の署名付き短命トークン。
+// QRコード経由の各種フロー (スタンプ付与/クーポン消し込み/スタッフ登録) で使う署名付き短命トークン。
 // 店舗のLINE QRリーダーで liff.line.me URL を読むとそのままLIFFが開く仕様を利用するため、
-// 専用のスキャナーUIは作らず「お客様のLIFF画面に表示したQR」をそのまま読んでもらう設計。
+// 専用のスキャナーUIは作らず「表示されたQR」をそのまま読んでもらう設計。
 // トークンに有効期限を持たせることで、スクリーンショットを後から再利用される事故を防ぐ。
 
 export interface GrantTokenPayload {
   friendId: string;
   accountId: string;
   exp: number; // epoch seconds
+}
+
+export interface OperatorRegistrationTokenPayload {
+  accountId: string;
+  exp: number;
 }
 
 function toBase64Url(bytes: Uint8Array): string {
@@ -31,24 +36,40 @@ async function hmacHex(secret: string, data: string): Promise<string> {
   return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-export async function signGrantToken(secret: string, payload: GrantTokenPayload): Promise<string> {
+async function signToken<T extends { exp: number }>(secret: string, payload: T): Promise<string> {
   const payloadB64 = toBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
   const sig = await hmacHex(secret, payloadB64);
   return `${payloadB64}.${sig}`;
 }
 
-export async function verifyGrantToken(secret: string, token: string): Promise<GrantTokenPayload | null> {
+async function verifyToken<T extends { exp: number }>(secret: string, token: string, isValid: (p: T) => boolean): Promise<T | null> {
   const parts = token.split('.');
   if (parts.length !== 2) return null;
   const [payloadB64, sig] = parts;
   const expectedSig = await hmacHex(secret, payloadB64);
   if (sig !== expectedSig) return null;
   try {
-    const payload = JSON.parse(fromBase64Url(payloadB64)) as GrantTokenPayload;
-    if (!payload.friendId || !payload.accountId || typeof payload.exp !== 'number') return null;
+    const payload = JSON.parse(fromBase64Url(payloadB64)) as T;
+    if (typeof payload.exp !== 'number' || !isValid(payload)) return null;
     if (payload.exp < Math.floor(Date.now() / 1000)) return null;
     return payload;
   } catch {
     return null;
   }
+}
+
+export function signGrantToken(secret: string, payload: GrantTokenPayload): Promise<string> {
+  return signToken(secret, payload);
+}
+
+export function verifyGrantToken(secret: string, token: string): Promise<GrantTokenPayload | null> {
+  return verifyToken<GrantTokenPayload>(secret, token, (p) => !!p.friendId && !!p.accountId);
+}
+
+export function signOperatorRegistrationToken(secret: string, payload: OperatorRegistrationTokenPayload): Promise<string> {
+  return signToken(secret, payload);
+}
+
+export function verifyOperatorRegistrationToken(secret: string, token: string): Promise<OperatorRegistrationTokenPayload | null> {
+  return verifyToken<OperatorRegistrationTokenPayload>(secret, token, (p) => !!p.accountId);
 }

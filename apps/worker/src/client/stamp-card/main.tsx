@@ -326,8 +326,16 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   return body;
 }
 
-// スタッフがQRをスキャンして開く画面。トークン自体が認可情報なので idToken/友だち判定は不要。
-function GrantScreen({ token }: { token: string }) {
+function describeOperatorError(code: string | undefined): string {
+  if (code === 'operator_not_registered') return 'このLINEアカウントはスタンプ付与の権限がありません。管理画面で発行した登録用QRを先に読み込んでください。';
+  if (code === 'operator_unauthenticated') return 'LINE認証に失敗しました。LINEアプリ内で開き直してください。';
+  if (code === 'invalid_or_expired_token') return 'QRコードの有効期限が切れています。お客様にもう一度QRを表示してもらってください。';
+  return 'エラーが発生しました。少し時間を置いて再度お試しください。';
+}
+
+// スタッフがQRをスキャンして開く画面。トークンに加え、スキャンした側 (idToken) が
+// 登録済みオペレーターかどうかをサーバ側で必ず確認する (不正利用防止、要件⑤と同様の超重要ポイント)。
+function GrantScreen({ ctx, token }: { ctx: StampCardContext; token: string }) {
   const [preview, setPreview] = useState<GrantPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [amount, setAmount] = useState(1000);
@@ -336,10 +344,13 @@ function GrantScreen({ token }: { token: string }) {
   const [redeemedIds, setRedeemedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    fetchJson<{ success: boolean; data: GrantPreview }>(`/api/liff/stamp-cards/grant-preview?token=${encodeURIComponent(token)}`)
+    fetchJson<{ success: boolean; data: GrantPreview }>(
+      `/api/liff/stamp-cards/grant-preview?token=${encodeURIComponent(token)}`,
+      { headers: buildAuthHeaders(ctx) },
+    )
       .then((r) => setPreview(r.data))
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, [token]);
+      .catch((e) => setError(describeOperatorError((e as { code?: string }).code)));
+  }, [token, ctx]);
 
   async function grant() {
     setBusy(true);
@@ -349,13 +360,13 @@ function GrantScreen({ token }: { token: string }) {
         '/api/liff/stamp-cards/grant',
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: buildAuthHeaders(ctx, { 'Content-Type': 'application/json' }),
           body: JSON.stringify({ token, amountYen: preview?.stampRuleType === 'per_amount' ? amount : undefined }),
         },
       );
       setGranted(res.data);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(describeOperatorError((e as { code?: string }).code));
     } finally {
       setBusy(false);
     }
@@ -365,12 +376,12 @@ function GrantScreen({ token }: { token: string }) {
     try {
       await fetchJson(`/api/liff/coupons/${couponId}/redeem`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildAuthHeaders(ctx, { 'Content-Type': 'application/json' }),
         body: JSON.stringify({ token }),
       });
       setRedeemedIds((s) => new Set(s).add(couponId));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(describeOperatorError((e as { code?: string }).code));
     }
   }
 
@@ -434,6 +445,46 @@ function GrantScreen({ token }: { token: string }) {
           </ul>
         </div>
       )}
+    </div>
+  );
+}
+
+// 「スタンプ付与スタッフ登録用QR」をスキャンして開く画面 (一度だけ)。
+function RegisterOperatorScreen({ ctx, token }: { ctx: StampCardContext; token: string }) {
+  const [state, setState] = useState<'pending' | 'done' | 'error'>('pending');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchJson('/api/liff/stamp-cards/register-operator', {
+      method: 'POST',
+      headers: buildAuthHeaders(ctx, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ token }),
+    })
+      .then(() => setState('done'))
+      .catch((e) => {
+        setState('error');
+        setError(e instanceof Error ? e.message : String(e));
+      });
+  }, [token, ctx]);
+
+  return (
+    <div className="px-4 py-10 text-center sc-slide-up">
+      <div className="sc-card">
+        {state === 'pending' && <Spinner />}
+        {state === 'done' && (
+          <>
+            <div className="text-5xl mb-3">✅</div>
+            <p className="text-sm text-gray-700">スタンプ付与スタッフとして登録しました。</p>
+            <p className="text-xs text-gray-500 mt-2">これでお客様のQRを読んでスタンプを付与できます。</p>
+          </>
+        )}
+        {state === 'error' && (
+          <>
+            <div className="text-5xl mb-3">⚠️</div>
+            <p className="text-sm text-gray-700">{error ?? '登録に失敗しました'}</p>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -508,7 +559,8 @@ type Screen =
   | { kind: 'coupons' }
   | { kind: 'extend'; target: 'card' | 'coupon'; id: string }
   | { kind: 'qr' }
-  | { kind: 'grant'; token: string };
+  | { kind: 'grant'; token: string }
+  | { kind: 'registerOperator'; token: string };
 
 function App({ ctx, initial }: { ctx: StampCardContext; initial: Screen }) {
   const [screen, setScreen] = useState<Screen>(initial);
@@ -528,7 +580,8 @@ function App({ ctx, initial }: { ctx: StampCardContext; initial: Screen }) {
         {screen.kind === 'coupons' && <CouponListScreen ctx={ctx} onBack={() => setScreen({ kind: 'card' })} />}
         {screen.kind === 'extend' && <ExtendActionScreen ctx={ctx} kind={screen.target} id={screen.id} />}
         {screen.kind === 'qr' && <QrScreen ctx={ctx} liffId={ctx.liffId} onBack={() => setScreen({ kind: 'card' })} />}
-        {screen.kind === 'grant' && <GrantScreen token={screen.token} />}
+        {screen.kind === 'grant' && <GrantScreen ctx={ctx} token={screen.token} />}
+        {screen.kind === 'registerOperator' && <RegisterOperatorScreen ctx={ctx} token={screen.token} />}
       </main>
     </div>
   );

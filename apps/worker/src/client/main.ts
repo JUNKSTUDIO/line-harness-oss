@@ -451,19 +451,34 @@ async function initEventBooking(initialKind: 'detail' | 'history'): Promise<void
 // ─── Stamp Card (React, dynamic-imported) ────────────────
 
 async function initStampCard(): Promise<void> {
-  // QRスキャン経由の付与確認画面 (action=grant&token=...) はトークン自体が認可情報。
-  // スキャンする側 (店舗スタッフ) のLINEプロフィール取得・友だち判定は不要なので、
-  // 通常の初期化シーケンスを完全にスキップして直接マウントする。
+  // QRスキャン経由の付与確認画面 (action=grant&token=...) / スタッフ登録 (action=register-operator)
+  // は、スキャンする側 (店舗スタッフ) の「友だち」判定は不要だが、本人確認のためidTokenだけは要る
+  // (誰でも付与できてしまう不正利用を防ぐため、サーバ側でオペレーター登録済みか必ず確認する)。
+  // 通常の友だち追加フロー (友だちゲート・UUID紐付け等) は完全にスキップする。
   const earlyParams = new URLSearchParams(window.location.search);
-  if (earlyParams.get('action') === 'grant') {
-    const token = earlyParams.get('token');
+  const earlyAction = earlyParams.get('action');
+  if (earlyAction === 'grant' || earlyAction === 'register-operator') {
     const container = document.getElementById('app');
-    if (!container || !token) {
-      showError('QRコードが無効です');
+    if (!container) {
+      showError('mount target #app が見つかりません');
+      return;
+    }
+    const idToken = liff.getIDToken() ?? '';
+    if (!idToken) {
+      showError('LINE 認証情報の取得に失敗しました。LINE アプリ内で再度開いてください。');
       return;
     }
     const { mountStampCard } = await import('./stamp-card/main.js');
-    mountStampCard(container, { liffId: LIFF_ID, lineUserId: '', idToken: '' }, { kind: 'grant', token });
+    const ctx = { liffId: LIFF_ID, lineUserId: '', idToken };
+    if (earlyAction === 'grant') {
+      const token = earlyParams.get('token');
+      if (!token) { showError('QRコードが無効です'); return; }
+      mountStampCard(container, ctx, { kind: 'grant', token });
+    } else {
+      const token = earlyParams.get('token');
+      if (!token) { showError('QRコードが無効です'); return; }
+      mountStampCard(container, ctx, { kind: 'registerOperator', token });
+    }
     return;
   }
 

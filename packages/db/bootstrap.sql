@@ -217,6 +217,16 @@ CREATE TABLE calendar_bookings (
   updated_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
 );
 
+CREATE TABLE card_grant_operators (
+  id              TEXT PRIMARY KEY,
+  line_account_id TEXT NOT NULL REFERENCES line_accounts(id) ON DELETE CASCADE,
+  line_user_id    TEXT NOT NULL,
+  display_name    TEXT,
+  picture_url     TEXT,
+  registered_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  UNIQUE (line_account_id, line_user_id)
+);
+
 CREATE TABLE card_ranks (
   id                      TEXT PRIMARY KEY,
   line_account_id         TEXT NOT NULL REFERENCES line_accounts(id) ON DELETE CASCADE,
@@ -242,7 +252,7 @@ CREATE TABLE card_settings (
   reminder_days_before        INTEGER NOT NULL DEFAULT 3,      -- 期限前リマインドのタイミング (残り○日)
   reservation_url             TEXT,                            -- 外部予約システムURL (NULLなら社内LIFF予約に誘導)
   created_at                 TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
-  updated_at                 TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')), stamp_image_url TEXT, shop_latitude REAL, shop_longitude REAL, weather_last_checked_at TEXT,
+  updated_at                 TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')), stamp_image_url TEXT, shop_latitude REAL, shop_longitude REAL, weather_last_checked_at TEXT, shop_address TEXT, weather_check_interval_minutes INTEGER NOT NULL DEFAULT 30,
   CHECK (stamp_rule_type != 'per_amount' OR amount_per_stamp IS NOT NULL)
 );
 
@@ -948,6 +958,8 @@ CREATE INDEX idx_broadcasts_status ON broadcasts (status);
 CREATE INDEX idx_calendar_bookings_friend ON calendar_bookings (friend_id);
 
 CREATE INDEX idx_calendar_bookings_start ON calendar_bookings (start_at);
+
+CREATE INDEX idx_card_grant_operators_account ON card_grant_operators (line_account_id);
 
 CREATE INDEX idx_card_ranks_account_order ON card_ranks (line_account_id, rank_order);
 

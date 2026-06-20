@@ -20,6 +20,8 @@ const EMPTY: CardSettings = {
   stamp_image_url: null,
   shop_latitude: null,
   shop_longitude: null,
+  shop_address: null,
+  weather_check_interval_minutes: 30,
 }
 
 export default function StampCardSettingsPage() {
@@ -29,17 +31,42 @@ export default function StampCardSettingsPage() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
+  const [addressInput, setAddressInput] = useState('')
+  const [geocoding, setGeocoding] = useState(false)
+  const [geocodeMessage, setGeocodeMessage] = useState('')
 
   useEffect(() => {
     if (!selectedAccount) return
     setLoading(true)
     setError('')
     api.cardSettings.get(selectedAccount.id).then((res) => {
-      if (res.success) setForm(res.data)
-      else setError(res.error)
+      if (res.success) {
+        setForm(res.data)
+        setAddressInput(res.data.shop_address ?? '')
+      } else {
+        setError(res.error)
+      }
       setLoading(false)
     })
   }, [selectedAccount])
+
+  async function geocodeAddress() {
+    if (!selectedAccount || !addressInput) return
+    setGeocoding(true)
+    setGeocodeMessage('')
+    setError('')
+    try {
+      const res = await api.cardSettings.geocodeAddress(selectedAccount.id, addressInput)
+      if (res.success) {
+        setForm(res.data)
+        setGeocodeMessage(`位置情報を取得しました（緯度${res.data.shop_latitude}, 経度${res.data.shop_longitude}）`)
+      } else {
+        setGeocodeMessage('位置情報の取得に失敗しました。住所表記を見直してください。')
+      }
+    } finally {
+      setGeocoding(false)
+    }
+  }
 
   function set<K extends keyof CardSettings>(key: K, value: CardSettings[K]) {
     setForm((f) => ({ ...f, [key]: value }))
@@ -62,8 +89,7 @@ export default function StampCardSettingsPage() {
         reminder_days_before: form.reminder_days_before,
         reservation_url: form.reservation_url,
         stamp_image_url: form.stamp_image_url,
-        shop_latitude: form.shop_latitude,
-        shop_longitude: form.shop_longitude,
+        weather_check_interval_minutes: form.weather_check_interval_minutes,
       })
       if (res.success) {
         setForm(res.data)
@@ -217,30 +243,42 @@ export default function StampCardSettingsPage() {
 
         <Section title="天候連携（ポイント倍率ルールの自動ON/OFF）">
           <p className="text-xs text-gray-500">
-            緯度・経度を設定すると、「天候」条件のポイント倍率ルールが現在の天気に応じて自動でON/OFFされます（約30分間隔で確認）。未設定の場合は手動スイッチのみで動作します。
+            住所を入力すると自動で位置情報を取得し、「天候」条件のポイント倍率ルールが現在の天気に応じて自動でON/OFFされます。未設定の場合は手動スイッチのみで動作します。
           </p>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="緯度">
+          <Field label="店舗の住所">
+            <div className="flex gap-2">
               <input
-                type="number"
-                step="0.00001"
-                value={form.shop_latitude ?? ''}
-                onChange={(e) => set('shop_latitude', e.target.value ? Number(e.target.value) : null)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                placeholder="例: 36.40265"
+                type="text"
+                value={addressInput}
+                onChange={(e) => setAddressInput(e.target.value)}
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                placeholder="例: 長野県上田市天神1-6-2"
               />
-            </Field>
-            <Field label="経度">
-              <input
-                type="number"
-                step="0.00001"
-                value={form.shop_longitude ?? ''}
-                onChange={(e) => set('shop_longitude', e.target.value ? Number(e.target.value) : null)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                placeholder="例: 138.28162"
-              />
-            </Field>
-          </div>
+              <button
+                onClick={geocodeAddress}
+                disabled={geocoding || !addressInput}
+                className="rounded-lg bg-gray-700 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50 whitespace-nowrap"
+              >
+                {geocoding ? '取得中...' : '位置情報を取得'}
+              </button>
+            </div>
+            {geocodeMessage && <p className="text-xs text-gray-500 mt-1.5">{geocodeMessage}</p>}
+            {form.shop_latitude != null && (
+              <p className="text-xs text-emerald-700 mt-1.5">
+                設定済み: 緯度{form.shop_latitude} / 経度{form.shop_longitude}
+              </p>
+            )}
+          </Field>
+          <Field label="天気を確認する間隔（分）">
+            <input
+              type="number"
+              min={5}
+              value={form.weather_check_interval_minutes}
+              onChange={(e) => set('weather_check_interval_minutes', Number(e.target.value))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            />
+            <p className="text-xs text-gray-400 mt-1">例: 60 = 1時間ごと、360 = 6時間ごと、1440 = 1日ごと</p>
+          </Field>
         </Section>
 
         <div className="flex items-center gap-3">
