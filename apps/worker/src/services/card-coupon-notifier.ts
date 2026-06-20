@@ -1,0 +1,104 @@
+// スタンプカード/クーポンの期限前リマインド + セルフ延長確認メッセージ送信。
+// booking-notifier.ts と同じ「pure render + sender」分割パターン。
+
+import { LineClient, flexBubble, flexBox, flexText, flexButton, flexMessage } from '@line-crm/line-sdk';
+import type { FlexBubble } from '@line-crm/line-sdk';
+import { getLineAccountById } from '@line-crm/db';
+
+export type ExpiryReminderKind = 'card' | 'coupon';
+
+export interface ExpiryReminderContext {
+  kind: ExpiryReminderKind;
+  /** カード: 現在のランク名や進捗。クーポン: クーポン名。 */
+  label: string;
+  expiresAtJst: string; // "2026-06-27"
+  reservationUrl: string | null;
+  /** LIFF 延長ボタンの遷移先 (liff.line.me/<liffId>?page=stamp-card&action=extend&...) */
+  extendLiffUrl: string;
+}
+
+/** 予約ボタンに使う最終URL。reservationUrl未設定ならLIFFのスタンプカード画面(予約セクション)へ。 */
+function resolveReservationUrl(ctx: ExpiryReminderContext, fallbackLiffUrl: string): string {
+  return ctx.reservationUrl || fallbackLiffUrl;
+}
+
+export function buildExpiryReminderBubble(ctx: ExpiryReminderContext, fallbackLiffUrl: string): FlexBubble {
+  const title = ctx.kind === 'card' ? 'スタンプカードの有効期限が近づいています' : 'クーポンの有効期限が近づいています';
+  const reservationUrl = resolveReservationUrl(ctx, fallbackLiffUrl);
+
+  return flexBubble({
+    header: flexBox(
+      'vertical',
+      [flexText('⏰ 期限間近のお知らせ', { size: 'sm', weight: 'bold', color: '#c2410c' })],
+      { paddingAll: '20px', backgroundColor: '#fff7ed' },
+    ),
+    body: flexBox(
+      'vertical',
+      [
+        flexText(title, { size: 'md', weight: 'bold', color: '#1e293b', wrap: true }),
+        flexText(ctx.label, { size: 'sm', color: '#475569', wrap: true }),
+        { type: 'separator', margin: 'md' },
+        flexBox(
+          'horizontal',
+          [
+            flexText('有効期限', { size: 'xs', color: '#94a3b8', flex: 2 }),
+            flexText(ctx.expiresAtJst, { size: 'xs', color: '#1e293b', weight: 'bold', flex: 3, align: 'end' }),
+          ],
+          { margin: 'md' },
+        ),
+        flexText('お席の確保はこちらからどうぞ。', { size: 'xs', color: '#64748b', wrap: true, margin: 'md' }),
+      ],
+      { paddingAll: '20px', spacing: 'md' },
+    ),
+    footer: flexBox(
+      'vertical',
+      [
+        flexButton({ type: 'uri', label: '予約する', uri: reservationUrl }, { style: 'primary', color: '#06C755' }),
+        flexButton(
+          { type: 'uri', label: 'どうしても来店できない方はこちら（1回限定で1週間延長）', uri: ctx.extendLiffUrl },
+          { style: 'secondary' },
+        ),
+      ],
+      { spacing: 'sm', paddingAll: '16px' },
+    ),
+  });
+}
+
+export interface SendExpiryReminderParams {
+  channelAccessToken: string;
+  toLineUserId: string;
+  ctx: ExpiryReminderContext;
+  fallbackLiffUrl: string;
+}
+
+export async function sendExpiryReminder(params: SendExpiryReminderParams): Promise<void> {
+  const client = new LineClient(params.channelAccessToken);
+  const bubble = buildExpiryReminderBubble(params.ctx, params.fallbackLiffUrl);
+  const altText = params.ctx.kind === 'card' ? '【期限間近】スタンプカードの有効期限が近づいています' : '【期限間近】クーポンの有効期限が近づいています';
+  await client.pushMessage(params.toLineUserId, [flexMessage(altText, bubble)]);
+}
+
+export async function sendExtensionConfirmed(channelAccessToken: string, toLineUserId: string): Promise<void> {
+  const client = new LineClient(channelAccessToken);
+  await client.pushTextMessage(toLineUserId, '有効期限を1週間延長しました。ご来店を心よりお待ちしております！');
+}
+
+export async function sendExtensionAlreadyUsed(channelAccessToken: string, toLineUserId: string): Promise<void> {
+  const client = new LineClient(channelAccessToken);
+  await client.pushTextMessage(toLineUserId, 'このカード/クーポンは既に一度延長されています。延長は1回限定でご利用いただけます。');
+}
+
+/** アカウントのLIFF IDから延長ボタン用URLを組み立てる。liff_id未設定ならWorker直URL(?liffId=不要)にフォールバック。 */
+export async function resolveExtendLiffUrl(
+  db: D1Database,
+  lineAccountId: string,
+  envLiffUrl: string,
+  query: { kind: ExpiryReminderKind; id: string },
+): Promise<string> {
+  const account = await getLineAccountById(db, lineAccountId);
+  const params = new URLSearchParams({ page: 'stamp-card', action: 'extend', kind: query.kind, id: query.id });
+  if (account?.liff_id) {
+    return `https://liff.line.me/${account.liff_id}?${params.toString()}`;
+  }
+  return envLiffUrl ? `${envLiffUrl}?${params.toString()}` : '#';
+}

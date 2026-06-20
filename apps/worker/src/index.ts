@@ -8,6 +8,8 @@ import {
   getRandomPoolAccount,
   getPoolAccounts,
   getEntryRouteByRefCode,
+  expireOverdueCards,
+  expireOverdueCoupons,
 } from '@line-crm/db';
 import { processStepDeliveries } from './services/step-delivery.js';
 import { processScheduledBroadcasts, processQueuedBroadcasts } from './services/broadcast.js';
@@ -19,6 +21,7 @@ import { processDueReminders } from './services/booking-reminders.js';
 import { runExpirer } from './services/booking-expirer.js';
 import { processDueEventReminders } from './services/event-booking-reminders.js';
 import { runEventBookingExpirer } from './services/event-booking-expirer.js';
+import { processCardCouponExpiryReminders } from './services/card-coupon-reminders.js';
 import { sendEventBookingNotification } from './services/event-booking-notifier.js';
 import { sendBookingNotification } from './services/booking-notifier.js';
 import { DEFAULT_ACCOUNT_SETTINGS } from './services/booking-types.js';
@@ -67,6 +70,7 @@ import { adminAuth } from './routes/admin-auth.js';
 import { resolveCorsOrigin } from './middleware/admin-auth-config.js';
 import booking from './routes/booking.js';
 import events from './routes/events.js';
+import { cardCoupon } from './routes/card-coupon.js';
 import { trafficPools } from './routes/traffic-pools.js';
 import { meetCallback } from './routes/meet-callback.js';
 import { messageTemplates } from './routes/message-templates.js';
@@ -180,6 +184,7 @@ app.route('/', adminAuth);
 app.route('/', trafficPools);
 app.route('/', booking);
 app.route('/', events);
+app.route('/', cardCoupon);
 app.route('/', accountSettings);
 app.route('/', meetCallback);
 app.route('/', messageTemplates);
@@ -650,6 +655,31 @@ async function scheduled(
       );
     } catch (e) {
       console.error('event-booking-expirer error:', e);
+    }
+  }
+
+  // Stamp card / coupon expiry reminders — every 5-minute tick scans due cards & coupons.
+  try {
+    const result = await processCardCouponExpiryReminders(env.DB, {
+      now: new Date(),
+      envLiffUrl: env.LIFF_URL,
+    });
+    if (result.sent + result.failed > 0) {
+      console.log(`[card-coupon-reminders] sent=${result.sent} failed=${result.failed}`);
+    }
+  } catch (e) {
+    console.error('card-coupon-reminders error:', e);
+  }
+
+  // Stamp card / coupon expirer — 6h cron tick.
+  if (event.cron === '0 */6 * * *') {
+    try {
+      const now = new Date();
+      const expiredCards = await expireOverdueCards(env.DB, now);
+      const expiredCoupons = await expireOverdueCoupons(env.DB, now);
+      console.log(`[card-coupon-expirer] cards=${expiredCards} coupons=${expiredCoupons}`);
+    } catch (e) {
+      console.error('card-coupon-expirer error:', e);
     }
   }
 
