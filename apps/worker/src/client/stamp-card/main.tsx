@@ -34,6 +34,7 @@ interface CardView {
 interface CardResponse {
   card: CardView;
   reservationUrl: string | null;
+  stampImageUrl: string | null;
 }
 
 interface CouponItem {
@@ -121,24 +122,45 @@ function RankBadge({ card }: { card: CardView }) {
   );
 }
 
-function StampMeter({ card }: { card: CardView }) {
+// 紙のショップカードを模した「マス目にスタンプがポンと押される」見た目。
+// goal が無い (フリー集計) 店舗ではマス目を描けないので数字表示にフォールバックする。
+function StampGrid({ card, stampImageUrl }: { card: CardView; stampImageUrl: string | null }) {
   const goal = card.goal;
-  const pct = goal ? Math.min(100, Math.round((card.stampCount / goal) * 100)) : 0;
+
   return (
     <div className="sc-card mt-3">
       <div className="flex items-baseline justify-between">
         <span className="text-xs text-gray-500">スタンプ</span>
-        <span className="text-2xl font-bold text-gray-900">
+        <span className="text-lg font-bold text-gray-900">
           {card.stampCount}
-          {goal != null && <span className="text-base text-gray-400"> / {goal}</span>}
+          {goal != null && <span className="text-sm text-gray-400"> / {goal}</span>}
         </span>
       </div>
-      {goal != null && (
-        <div className="sc-meter mt-2">
-          <div className="sc-meter-fill" style={{ width: `${pct}%` }} />
+
+      {goal != null ? (
+        <div className="sc-stamp-grid mt-3">
+          {Array.from({ length: goal }, (_, i) => {
+            const filled = i < card.stampCount;
+            return (
+              <div
+                key={i}
+                className={`sc-stamp-slot ${filled ? 'sc-stamp-slot-filled' : ''}`}
+                style={filled ? { animationDelay: `${i * 60}ms` } : undefined}
+              >
+                {filled && (stampImageUrl ? (
+                  <img src={stampImageUrl} alt="" className="sc-stamp-image" />
+                ) : (
+                  <span className="sc-stamp-mark">済</span>
+                ))}
+              </div>
+            );
+          })}
         </div>
+      ) : (
+        <div className="text-2xl font-bold text-gray-900 mt-2">{card.stampCount}pt</div>
       )}
-      <div className="text-xs text-gray-500 mt-2">
+
+      <div className="text-xs text-gray-500 mt-3">
         {card.remainingToGoal != null && card.remainingToGoal > 0
           ? `あと${card.remainingToGoal}個でクリア${card.nextRankName ? '（次のランクへ）' : ''}`
           : 'クーポンと交換できます🎁'}
@@ -213,12 +235,12 @@ function CardScreen({ ctx, onShowCoupons }: { ctx: StampCardContext; onShowCoupo
   if (error) return <div className="px-4 py-6"><div className="sc-card text-center text-sm text-gray-600">{error}</div></div>;
   if (!data) return <Spinner />;
 
-  const { card, reservationUrl } = data;
+  const { card, reservationUrl, stampImageUrl } = data;
 
   return (
     <div className="px-4 py-4 pb-10 sc-fade-in">
       <RankBadge card={card} />
-      <StampMeter card={card} />
+      <StampGrid card={card} stampImageUrl={stampImageUrl} />
       {extendedAt ? <ExtendedNotice newExpiresAt={extendedAt} /> : <ExtendSection ctx={ctx} card={card} onExtended={setExtendedAt} />}
       {reservationUrl && (
         <a href={reservationUrl} className="sc-primary-btn mt-3 block text-center">

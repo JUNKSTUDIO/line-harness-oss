@@ -84,6 +84,7 @@ cardCoupon.get('/api/liff/cards/me', async (c) => {
       status: card.status,
     },
     reservationUrl: settings?.reservation_url ?? null,
+    stampImageUrl: settings?.stamp_image_url ?? null,
   });
 });
 

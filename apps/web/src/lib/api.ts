@@ -128,6 +128,78 @@ export type FriendListParams = {
   handled?: 'unhandled'
 }
 
+export interface CardSettings {
+  line_account_id: string
+  stamp_rule_type: 'per_visit' | 'per_amount'
+  amount_per_stamp: number | null
+  signup_bonus_stamps: number
+  rank_enabled: number
+  flat_goal_stamps: number | null
+  card_expiry_months: number | null
+  default_coupon_validity_days: number
+  reminder_days_before: number
+  reservation_url: string | null
+  stamp_image_url: string | null
+  created_at?: string
+  updated_at?: string
+}
+
+export interface CardRank {
+  id: string
+  line_account_id: string
+  name: string
+  rank_order: number
+  max_stamps: number
+  reward_coupon_template_id: string | null
+  rich_menu_group_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface PointMultiplierRule {
+  id: string
+  line_account_id: string
+  name: string
+  multiplier: number
+  condition_type: 'manual' | 'weekday' | 'time_range' | 'period' | 'weather'
+  weekday: number | null
+  time_start: string | null
+  time_end: string | null
+  starts_at: string | null
+  ends_at: string | null
+  weather_condition: 'rain' | 'snow' | null
+  is_active: number
+  priority: number
+  created_at: string
+  updated_at: string
+}
+
+export interface CouponTemplate {
+  id: string
+  line_account_id: string
+  name: string
+  description: string | null
+  validity_type: 'relative_days' | 'absolute_date'
+  validity_days: number | null
+  absolute_expires_at: string | null
+  message_template_id: string | null
+  is_active: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ExpiredCouponHolder {
+  id: string
+  friend_id: string
+  display_name: string | null
+  line_user_id: string
+  coupon_name: string
+  status: 'unused' | 'used' | 'expired'
+  expires_at: string
+  rescue_count: number
+  last_rescued_at: string | null
+}
+
 export type FriendWithTags = Friend & { tags: Tag[] }
 /** Friend list items, optionally hydrated with chat status (when ?includeChatStatus=true) */
 export type FriendListItem = FriendWithTags & Partial<{
@@ -387,6 +459,68 @@ export const api = {
       fetchApi<{ success: boolean }>('/api/account-settings/test-recipients', {
         method: 'PUT',
         body: JSON.stringify({ accountId, friendIds }),
+      }),
+  },
+
+  cardSettings: {
+    get: (accountId: string) =>
+      fetchApi<ApiResponse<CardSettings>>(`/api/card-settings?accountId=${accountId}`),
+    update: (accountId: string, body: Partial<Omit<CardSettings, 'line_account_id' | 'created_at' | 'updated_at'>>) =>
+      fetchApi<ApiResponse<CardSettings>>(`/api/card-settings?accountId=${accountId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
+  },
+
+  cardRanks: {
+    list: (accountId: string) =>
+      fetchApi<ApiResponse<CardRank[]>>(`/api/card-ranks?accountId=${accountId}`),
+    create: (body: { accountId: string; name: string; maxStamps: number; rewardCouponTemplateId?: string | null }) =>
+      fetchApi<ApiResponse<CardRank>>('/api/card-ranks', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id: string, body: Partial<{ name: string; maxStamps: number; rewardCouponTemplateId: string | null }>) =>
+      fetchApi<ApiResponse<CardRank>>(`/api/card-ranks/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    delete: (id: string) =>
+      fetchApi<ApiResponse<null>>(`/api/card-ranks/${id}`, { method: 'DELETE' }),
+  },
+
+  pointMultiplierRules: {
+    list: (accountId: string) =>
+      fetchApi<ApiResponse<PointMultiplierRule[]>>(`/api/point-multiplier-rules?accountId=${accountId}`),
+    create: (body: {
+      accountId: string; name: string; multiplier: number
+      conditionType: PointMultiplierRule['condition_type']
+      weekday?: number | null; timeStart?: string | null; timeEnd?: string | null
+      startsAt?: string | null; endsAt?: string | null
+      weatherCondition?: PointMultiplierRule['weather_condition']; priority?: number
+    }) => fetchApi<ApiResponse<PointMultiplierRule>>('/api/point-multiplier-rules', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id: string, body: Record<string, unknown>) =>
+      fetchApi<ApiResponse<PointMultiplierRule>>(`/api/point-multiplier-rules/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    toggle: (id: string, isActive: boolean) =>
+      fetchApi<ApiResponse<null>>(`/api/point-multiplier-rules/${id}/toggle`, { method: 'POST', body: JSON.stringify({ isActive }) }),
+    delete: (id: string) =>
+      fetchApi<ApiResponse<null>>(`/api/point-multiplier-rules/${id}`, { method: 'DELETE' }),
+  },
+
+  couponTemplates: {
+    list: (accountId: string) =>
+      fetchApi<ApiResponse<CouponTemplate[]>>(`/api/coupon-templates?accountId=${accountId}`),
+    create: (body: {
+      accountId: string; name: string; description?: string | null
+      validityType: CouponTemplate['validity_type']; validityDays?: number | null; absoluteExpiresAt?: string | null
+    }) => fetchApi<ApiResponse<CouponTemplate>>('/api/coupon-templates', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id: string, body: Record<string, unknown>) =>
+      fetchApi<ApiResponse<CouponTemplate>>(`/api/coupon-templates/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    delete: (id: string) =>
+      fetchApi<ApiResponse<null>>(`/api/coupon-templates/${id}`, { method: 'DELETE' }),
+  },
+
+  couponRescue: {
+    listExpired: (accountId: string) =>
+      fetchApi<ApiResponse<ExpiredCouponHolder[]>>(`/api/coupons/expired?accountId=${accountId}`),
+    rescue: (couponId: string, accountId: string, extendDays: number) =>
+      fetchApi<ApiResponse<null>>(`/api/coupons/${couponId}/rescue`, {
+        method: 'POST',
+        body: JSON.stringify({ accountId, extendDays }),
       }),
   },
 

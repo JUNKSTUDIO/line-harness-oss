@@ -40,6 +40,62 @@ export async function getCouponTemplateById(db: D1Database, id: string): Promise
   return db.prepare(`SELECT * FROM coupon_templates WHERE id = ?`).bind(id).first<CouponTemplateRow>();
 }
 
+export interface CreateCouponTemplateInput {
+  lineAccountId: string;
+  name: string;
+  description?: string | null;
+  validityType: CouponTemplateRow['validity_type'];
+  validityDays?: number | null;
+  absoluteExpiresAt?: string | null;
+  messageTemplateId?: string | null;
+}
+
+export async function createCouponTemplate(db: D1Database, input: CreateCouponTemplateInput): Promise<CouponTemplateRow> {
+  const id = crypto.randomUUID();
+  const now = jstNow();
+  await db
+    .prepare(
+      `INSERT INTO coupon_templates (id, line_account_id, name, description, validity_type, validity_days, absolute_expires_at, message_template_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      id, input.lineAccountId, input.name, input.description ?? null, input.validityType,
+      input.validityDays ?? null, input.absoluteExpiresAt ?? null, input.messageTemplateId ?? null, now, now,
+    )
+    .run();
+  return (await getCouponTemplateById(db, id))!;
+}
+
+export async function updateCouponTemplate(
+  db: D1Database,
+  id: string,
+  updates: Partial<{
+    name: string; description: string | null; validityType: CouponTemplateRow['validity_type'];
+    validityDays: number | null; absoluteExpiresAt: string | null; messageTemplateId: string | null; isActive: boolean;
+  }>,
+): Promise<CouponTemplateRow | null> {
+  const colMap: Record<string, string> = {
+    name: 'name', description: 'description', validityType: 'validity_type',
+    validityDays: 'validity_days', absoluteExpiresAt: 'absolute_expires_at', messageTemplateId: 'message_template_id',
+  };
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  for (const [key, col] of Object.entries(colMap)) {
+    const value = (updates as Record<string, unknown>)[key];
+    if (value !== undefined) { sets.push(`${col} = ?`); values.push(value); }
+  }
+  if (updates.isActive !== undefined) { sets.push('is_active = ?'); values.push(updates.isActive ? 1 : 0); }
+  if (sets.length === 0) return getCouponTemplateById(db, id);
+  sets.push('updated_at = ?');
+  values.push(jstNow(), id);
+  await db.prepare(`UPDATE coupon_templates SET ${sets.join(', ')} WHERE id = ?`).bind(...values).run();
+  return getCouponTemplateById(db, id);
+}
+
+export async function deleteCouponTemplate(db: D1Database, id: string): Promise<void> {
+  await db.prepare(`DELETE FROM coupon_templates WHERE id = ?`).bind(id).run();
+}
+
 export async function getCouponTemplates(db: D1Database, lineAccountId: string): Promise<CouponTemplateRow[]> {
   const result = await db
     .prepare(`SELECT * FROM coupon_templates WHERE line_account_id = ? ORDER BY created_at DESC`)

@@ -63,6 +63,16 @@ const menuSections = [
     ],
   },
   {
+    label: 'ショップカード',
+    items: [
+      { href: '/stamp-card-settings', label: 'スタンプカード設定', icon: 'M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z' },
+      { href: '/rank-settings', label: 'ランク管理', icon: 'M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zM5 16v3a1 1 0 001 1h12a1 1 0 001-1v-3' },
+      { href: '/point-multiplier-rules', label: 'ポイント倍率ルール', icon: 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6' },
+      { href: '/coupon-templates', label: 'クーポンテンプレート', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
+      { href: '/coupon-rescue', label: 'クーポン救済', icon: 'M4.318 6.318a4.5 4.5 0 016.364 0L12 7.636l1.318-1.318a4.5 4.5 0 116.364 6.364L12 21l-7.682-7.682a4.5 4.5 0 010-6.364z' },
+    ],
+  },
+  {
     label: '設定',
     items: [
       { href: '/staff', label: 'スタッフ管理', icon: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z' },

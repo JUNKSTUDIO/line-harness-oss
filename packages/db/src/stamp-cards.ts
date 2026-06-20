@@ -13,6 +13,7 @@ export interface CardSettingsRow {
   default_coupon_validity_days: number;
   reminder_days_before: number;
   reservation_url: string | null;
+  stamp_image_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -82,8 +83,8 @@ export async function upsertCardSettings(
         `INSERT INTO card_settings (
            line_account_id, stamp_rule_type, amount_per_stamp, signup_bonus_stamps,
            rank_enabled, flat_goal_stamps, card_expiry_months, default_coupon_validity_days,
-           reminder_days_before, reservation_url, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           reminder_days_before, reservation_url, stamp_image_url, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         lineAccountId,
@@ -96,6 +97,7 @@ export async function upsertCardSettings(
         input.default_coupon_validity_days ?? 30,
         input.reminder_days_before ?? 3,
         input.reservation_url ?? null,
+        input.stamp_image_url ?? null,
         now,
         now,
       )
@@ -138,6 +140,53 @@ export async function getNextCardRank(db: D1Database, lineAccountId: string, cur
     .first<CardRankRow>();
 }
 
+export interface CreateCardRankInput {
+  lineAccountId: string;
+  name: string;
+  maxStamps: number;
+  rewardCouponTemplateId?: string | null;
+  richMenuGroupId?: string | null;
+}
+
+/** 新規ランクを末尾 (現在の最大rank_order + 1) に追加する。 */
+export async function createCardRank(db: D1Database, input: CreateCardRankInput): Promise<CardRankRow> {
+  const existing = await getCardRanks(db, input.lineAccountId);
+  const nextOrder = existing.length > 0 ? Math.max(...existing.map((r) => r.rank_order)) + 1 : 0;
+  const id = crypto.randomUUID();
+  const now = jstNow();
+  await db
+    .prepare(
+      `INSERT INTO card_ranks (id, line_account_id, name, rank_order, max_stamps, reward_coupon_template_id, rich_menu_group_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(id, input.lineAccountId, input.name, nextOrder, input.maxStamps, input.rewardCouponTemplateId ?? null, input.richMenuGroupId ?? null, now, now)
+    .run();
+  return (await getCardRankById(db, id))!;
+}
+
+export async function updateCardRank(
+  db: D1Database,
+  id: string,
+  updates: Partial<{ name: string; maxStamps: number; rewardCouponTemplateId: string | null; richMenuGroupId: string | null }>,
+): Promise<CardRankRow | null> {
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  if (updates.name !== undefined) { sets.push('name = ?'); values.push(updates.name); }
+  if (updates.maxStamps !== undefined) { sets.push('max_stamps = ?'); values.push(updates.maxStamps); }
+  if (updates.rewardCouponTemplateId !== undefined) { sets.push('reward_coupon_template_id = ?'); values.push(updates.rewardCouponTemplateId); }
+  if (updates.richMenuGroupId !== undefined) { sets.push('rich_menu_group_id = ?'); values.push(updates.richMenuGroupId); }
+  if (sets.length === 0) return getCardRankById(db, id);
+  sets.push('updated_at = ?');
+  values.push(jstNow(), id);
+  await db.prepare(`UPDATE card_ranks SET ${sets.join(', ')} WHERE id = ?`).bind(...values).run();
+  return getCardRankById(db, id);
+}
+
+/** ランク削除。rank_orderは詰めない (欠番があっても getNextCardRank は次の rank_order+1 を素直に探すだけなので問題ない)。 */
+export async function deleteCardRank(db: D1Database, id: string): Promise<void> {
+  await db.prepare(`DELETE FROM card_ranks WHERE id = ?`).bind(id).run();
+}
+
 // --- point_multiplier_rules ---
 
 export async function getPointMultiplierRules(db: D1Database, lineAccountId: string): Promise<PointMultiplierRuleRow[]> {
@@ -146,6 +195,77 @@ export async function getPointMultiplierRules(db: D1Database, lineAccountId: str
     .bind(lineAccountId)
     .all<PointMultiplierRuleRow>();
   return result.results;
+}
+
+export async function getPointMultiplierRuleById(db: D1Database, id: string): Promise<PointMultiplierRuleRow | null> {
+  return db.prepare(`SELECT * FROM point_multiplier_rules WHERE id = ?`).bind(id).first<PointMultiplierRuleRow>();
+}
+
+export interface CreatePointMultiplierRuleInput {
+  lineAccountId: string;
+  name: string;
+  multiplier: number;
+  conditionType: PointMultiplierRuleRow['condition_type'];
+  weekday?: number | null;
+  timeStart?: string | null;
+  timeEnd?: string | null;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  weatherCondition?: PointMultiplierRuleRow['weather_condition'];
+  priority?: number;
+}
+
+export async function createPointMultiplierRule(db: D1Database, input: CreatePointMultiplierRuleInput): Promise<PointMultiplierRuleRow> {
+  const id = crypto.randomUUID();
+  const now = jstNow();
+  await db
+    .prepare(
+      `INSERT INTO point_multiplier_rules (
+         id, line_account_id, name, multiplier, condition_type, weekday, time_start, time_end,
+         starts_at, ends_at, weather_condition, priority, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      id, input.lineAccountId, input.name, input.multiplier, input.conditionType,
+      input.weekday ?? null, input.timeStart ?? null, input.timeEnd ?? null,
+      input.startsAt ?? null, input.endsAt ?? null, input.weatherCondition ?? null,
+      input.priority ?? 0, now, now,
+    )
+    .run();
+  return (await getPointMultiplierRuleById(db, id))!;
+}
+
+export async function updatePointMultiplierRule(
+  db: D1Database,
+  id: string,
+  updates: Partial<{
+    name: string; multiplier: number; conditionType: PointMultiplierRuleRow['condition_type'];
+    weekday: number | null; timeStart: string | null; timeEnd: string | null;
+    startsAt: string | null; endsAt: string | null; weatherCondition: PointMultiplierRuleRow['weather_condition'];
+    priority: number; isActive: boolean;
+  }>,
+): Promise<PointMultiplierRuleRow | null> {
+  const colMap: Record<string, string> = {
+    name: 'name', multiplier: 'multiplier', conditionType: 'condition_type', weekday: 'weekday',
+    timeStart: 'time_start', timeEnd: 'time_end', startsAt: 'starts_at', endsAt: 'ends_at',
+    weatherCondition: 'weather_condition', priority: 'priority',
+  };
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  for (const [key, col] of Object.entries(colMap)) {
+    const value = (updates as Record<string, unknown>)[key];
+    if (value !== undefined) { sets.push(`${col} = ?`); values.push(value); }
+  }
+  if (updates.isActive !== undefined) { sets.push('is_active = ?'); values.push(updates.isActive ? 1 : 0); }
+  if (sets.length === 0) return getPointMultiplierRuleById(db, id);
+  sets.push('updated_at = ?');
+  values.push(jstNow(), id);
+  await db.prepare(`UPDATE point_multiplier_rules SET ${sets.join(', ')} WHERE id = ?`).bind(...values).run();
+  return getPointMultiplierRuleById(db, id);
+}
+
+export async function deletePointMultiplierRule(db: D1Database, id: string): Promise<void> {
+  await db.prepare(`DELETE FROM point_multiplier_rules WHERE id = ?`).bind(id).run();
 }
 
 export async function setMultiplierRuleActive(db: D1Database, id: string, isActive: boolean): Promise<void> {
