@@ -18,6 +18,8 @@ const EMPTY: CardSettings = {
   reminder_days_before: 3,
   reservation_url: null,
   stamp_image_url: null,
+  shop_latitude: null,
+  shop_longitude: null,
 }
 
 export default function StampCardSettingsPage() {
@@ -60,6 +62,8 @@ export default function StampCardSettingsPage() {
         reminder_days_before: form.reminder_days_before,
         reservation_url: form.reservation_url,
         stamp_image_url: form.stamp_image_url,
+        shop_latitude: form.shop_latitude,
+        shop_longitude: form.shop_longitude,
       })
       if (res.success) {
         setForm(res.data)
@@ -209,6 +213,34 @@ export default function StampCardSettingsPage() {
               placeholder="https://tabelog.com/..."
             />
           </Field>
+        </Section>
+
+        <Section title="天候連携（ポイント倍率ルールの自動ON/OFF）">
+          <p className="text-xs text-gray-500">
+            緯度・経度を設定すると、「天候」条件のポイント倍率ルールが現在の天気に応じて自動でON/OFFされます（約30分間隔で確認）。未設定の場合は手動スイッチのみで動作します。
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="緯度">
+              <input
+                type="number"
+                step="0.00001"
+                value={form.shop_latitude ?? ''}
+                onChange={(e) => set('shop_latitude', e.target.value ? Number(e.target.value) : null)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                placeholder="例: 36.40265"
+              />
+            </Field>
+            <Field label="経度">
+              <input
+                type="number"
+                step="0.00001"
+                value={form.shop_longitude ?? ''}
+                onChange={(e) => set('shop_longitude', e.target.value ? Number(e.target.value) : null)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                placeholder="例: 138.28162"
+              />
+            </Field>
+          </div>
         </Section>
 
         <div className="flex items-center gap-3">

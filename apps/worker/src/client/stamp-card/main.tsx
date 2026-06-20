@@ -6,6 +6,7 @@
 
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { QRCodeSVG } from 'qrcode.react';
 import './styles.css';
 
 let _root: Root | null = null;
@@ -219,7 +220,7 @@ function ExtendedNotice({ newExpiresAt }: { newExpiresAt: string }) {
   );
 }
 
-function CardScreen({ ctx, onShowCoupons }: { ctx: StampCardContext; onShowCoupons: () => void }) {
+function CardScreen({ ctx, onShowCoupons, onShowQr }: { ctx: StampCardContext; onShowCoupons: () => void; onShowQr: () => void }) {
   const [data, setData] = useState<CardResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [extendedAt, setExtendedAt] = useState<string | null>(null);
@@ -242,8 +243,11 @@ function CardScreen({ ctx, onShowCoupons }: { ctx: StampCardContext; onShowCoupo
       <RankBadge card={card} />
       <StampGrid card={card} stampImageUrl={stampImageUrl} />
       {extendedAt ? <ExtendedNotice newExpiresAt={extendedAt} /> : <ExtendSection ctx={ctx} card={card} onExtended={setExtendedAt} />}
+      <button onClick={onShowQr} className="sc-primary-btn mt-3">
+        スタッフにスタンプを押してもらう
+      </button>
       {reservationUrl && (
-        <a href={reservationUrl} className="sc-primary-btn mt-3 block text-center">
+        <a href={reservationUrl} className="sc-secondary-btn mt-2 block text-center">
           予約する
         </a>
       )}
@@ -252,6 +256,184 @@ function CardScreen({ ctx, onShowCoupons }: { ctx: StampCardContext; onShowCoupo
           保有しているクーポンを見る
         </button>
       </div>
+    </div>
+  );
+}
+
+function QrScreen({ ctx, liffId, onBack }: { ctx: StampCardContext; liffId: string; onBack: () => void }) {
+  const [token, setToken] = useState<string | null>(null);
+  const [expiresAt, setExpiresAt] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function fetchToken() {
+    setError(null);
+    setToken(null);
+    try {
+      const res = await apiGet<{ success: boolean; data: { token: string; expiresAt: number } }>(
+        '/api/liff/stamp-cards/qr-token',
+        ctx,
+      );
+      setToken(res.data.token);
+      setExpiresAt(res.data.expiresAt);
+    } catch {
+      setError('QRコードの発行に失敗しました');
+    }
+  }
+
+  useEffect(() => { void fetchToken(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const expired = expiresAt != null && expiresAt * 1000 < Date.now();
+  const qrUrl = token && !expired
+    ? `https://liff.line.me/${liffId}?page=stamp-card&action=grant&token=${encodeURIComponent(token)}`
+    : '';
+
+  return (
+    <div className="px-4 py-6 text-center sc-fade-in">
+      <button onClick={onBack} className="sc-back-btn mb-4">← 戻る</button>
+      <div className="sc-card">
+        <p className="text-sm text-gray-600 mb-4">このQRコードをレジでスタッフにお見せください</p>
+        {qrUrl ? (
+          <div className="flex justify-center py-2">
+            <QRCodeSVG value={qrUrl} size={220} />
+          </div>
+        ) : (
+          <div className="py-12 text-sm text-gray-400">{error ?? '発行中...'}</div>
+        )}
+        <button onClick={() => void fetchToken()} className="text-xs sc-line-green-text underline mt-4">
+          {expired ? '期限切れ — 再発行する' : 'QRを再発行する'}
+        </button>
+        <p className="text-xs text-gray-400 mt-2">5分間有効です</p>
+      </div>
+    </div>
+  );
+}
+
+interface GrantPreview {
+  friend: { displayName: string | null; pictureUrl: string | null };
+  card: { stampCount: number; currentRankName: string | null };
+  stampRuleType: 'per_visit' | 'per_amount';
+  coupons: Array<{ id: string; expiresAt: string }>;
+}
+
+async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(new URL(path, window.location.origin).toString(), init);
+  const body = (await res.json().catch(() => ({}))) as T & { error?: string };
+  if (!res.ok) {
+    const err = new Error((body as { error?: string }).error ?? `API ${res.status}`) as Error & { code?: string };
+    err.code = (body as { error?: string }).error;
+    throw err;
+  }
+  return body;
+}
+
+// スタッフがQRをスキャンして開く画面。トークン自体が認可情報なので idToken/友だち判定は不要。
+function GrantScreen({ token }: { token: string }) {
+  const [preview, setPreview] = useState<GrantPreview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [amount, setAmount] = useState(1000);
+  const [busy, setBusy] = useState(false);
+  const [granted, setGranted] = useState<{ stampCount: number; rankedUp: boolean; issuedCoupon: boolean } | null>(null);
+  const [redeemedIds, setRedeemedIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    fetchJson<{ success: boolean; data: GrantPreview }>(`/api/liff/stamp-cards/grant-preview?token=${encodeURIComponent(token)}`)
+      .then((r) => setPreview(r.data))
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, [token]);
+
+  async function grant() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetchJson<{ success: boolean; data: { stampCount: number; rankedUp: boolean; issuedCoupon: boolean } }>(
+        '/api/liff/stamp-cards/grant',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, amountYen: preview?.stampRuleType === 'per_amount' ? amount : undefined }),
+        },
+      );
+      setGranted(res.data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function redeem(couponId: string) {
+    try {
+      await fetchJson(`/api/liff/coupons/${couponId}/redeem`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+      setRedeemedIds((s) => new Set(s).add(couponId));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  if (error && !preview) return <div className="px-4 py-6"><div className="sc-card text-center text-sm text-gray-600">{error}</div></div>;
+  if (!preview) return <Spinner />;
+
+  return (
+    <div className="px-4 py-4 pb-10 sc-fade-in">
+      <div className="sc-card text-center">
+        <div className="text-sm text-gray-500">お客様</div>
+        <div className="text-lg font-bold text-gray-900 mt-1">{preview.friend.displayName ?? '(表示名なし)'}</div>
+        <div className="text-xs text-gray-500 mt-2">
+          現在 {preview.card.stampCount}pt {preview.card.currentRankName ? `（${preview.card.currentRankName}）` : ''}
+        </div>
+      </div>
+
+      {granted ? (
+        <div className="sc-extend-card sc-extend-done mt-3 text-center">
+          <div className="text-sm font-bold text-emerald-700">スタンプを付与しました</div>
+          <div className="text-xs text-emerald-700 mt-1">現在 {granted.stampCount}pt</div>
+          {granted.rankedUp && <div className="text-xs text-emerald-700 mt-1">🎉 ランクアップしました</div>}
+          {granted.issuedCoupon && <div className="text-xs text-emerald-700 mt-1">🎁 クーポンを発行しました</div>}
+        </div>
+      ) : (
+        <div className="sc-card mt-3">
+          {preview.stampRuleType === 'per_amount' && (
+            <div className="mb-3">
+              <label className="block text-xs text-gray-600 mb-1">利用金額（円）</label>
+              <input
+                type="number"
+                min={0}
+                value={amount}
+                onChange={(e) => setAmount(Number(e.target.value))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+          )}
+          {error && <div className="text-xs text-red-600 mb-2">{error}</div>}
+          <button onClick={grant} disabled={busy} className="sc-primary-btn">
+            {busy ? '処理中...' : 'スタンプを付与する'}
+          </button>
+        </div>
+      )}
+
+      {preview.coupons.length > 0 && (
+        <div className="sc-card mt-3">
+          <div className="text-xs text-gray-500 mb-2">保有クーポン</div>
+          <ul className="space-y-2">
+            {preview.coupons.map((cp) => (
+              <li key={cp.id} className="flex items-center justify-between">
+                <span className="text-xs text-gray-600">{formatJpDate(cp.expiresAt)}まで有効</span>
+                {redeemedIds.has(cp.id) ? (
+                  <span className="text-xs text-emerald-700">使用済みにしました✓</span>
+                ) : (
+                  <button onClick={() => redeem(cp.id)} className="text-xs rounded-md bg-emerald-600 px-3 py-1.5 text-white">
+                    使用済みにする
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
@@ -321,7 +503,12 @@ function ExtendActionScreen({ ctx, kind, id }: { ctx: StampCardContext; kind: 'c
   );
 }
 
-type Screen = { kind: 'card' } | { kind: 'coupons' } | { kind: 'extend'; target: 'card' | 'coupon'; id: string };
+type Screen =
+  | { kind: 'card' }
+  | { kind: 'coupons' }
+  | { kind: 'extend'; target: 'card' | 'coupon'; id: string }
+  | { kind: 'qr' }
+  | { kind: 'grant'; token: string };
 
 function App({ ctx, initial }: { ctx: StampCardContext; initial: Screen }) {
   const [screen, setScreen] = useState<Screen>(initial);
@@ -331,9 +518,17 @@ function App({ ctx, initial }: { ctx: StampCardContext; initial: Screen }) {
         スタンプカード
       </header>
       <main className="max-w-md mx-auto">
-        {screen.kind === 'card' && <CardScreen ctx={ctx} onShowCoupons={() => setScreen({ kind: 'coupons' })} />}
+        {screen.kind === 'card' && (
+          <CardScreen
+            ctx={ctx}
+            onShowCoupons={() => setScreen({ kind: 'coupons' })}
+            onShowQr={() => setScreen({ kind: 'qr' })}
+          />
+        )}
         {screen.kind === 'coupons' && <CouponListScreen ctx={ctx} onBack={() => setScreen({ kind: 'card' })} />}
         {screen.kind === 'extend' && <ExtendActionScreen ctx={ctx} kind={screen.target} id={screen.id} />}
+        {screen.kind === 'qr' && <QrScreen ctx={ctx} liffId={ctx.liffId} onBack={() => setScreen({ kind: 'card' })} />}
+        {screen.kind === 'grant' && <GrantScreen token={screen.token} />}
       </main>
     </div>
   );

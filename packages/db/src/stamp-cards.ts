@@ -14,6 +14,9 @@ export interface CardSettingsRow {
   reminder_days_before: number;
   reservation_url: string | null;
   stamp_image_url: string | null;
+  shop_latitude: number | null;
+  shop_longitude: number | null;
+  weather_last_checked_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -83,8 +86,9 @@ export async function upsertCardSettings(
         `INSERT INTO card_settings (
            line_account_id, stamp_rule_type, amount_per_stamp, signup_bonus_stamps,
            rank_enabled, flat_goal_stamps, card_expiry_months, default_coupon_validity_days,
-           reminder_days_before, reservation_url, stamp_image_url, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           reminder_days_before, reservation_url, stamp_image_url, shop_latitude, shop_longitude,
+           created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         lineAccountId,
@@ -98,6 +102,8 @@ export async function upsertCardSettings(
         input.reminder_days_before ?? 3,
         input.reservation_url ?? null,
         input.stamp_image_url ?? null,
+        input.shop_latitude ?? null,
+        input.shop_longitude ?? null,
         now,
         now,
       )
@@ -116,6 +122,23 @@ export async function upsertCardSettings(
     }
   }
   return (await getCardSettings(db, lineAccountId))!;
+}
+
+/** 店舗位置情報が設定済み、かつ weather 型の倍率ルールを持つ card_settings を抽出 (天候自動連携の対象)。 */
+export async function getCardSettingsWithWeatherLocation(db: D1Database): Promise<CardSettingsRow[]> {
+  const result = await db
+    .prepare(
+      `SELECT DISTINCT cs.* FROM card_settings cs
+         INNER JOIN point_multiplier_rules pmr ON pmr.line_account_id = cs.line_account_id AND pmr.condition_type = 'weather'
+        WHERE cs.shop_latitude IS NOT NULL AND cs.shop_longitude IS NOT NULL`,
+    )
+    .all<CardSettingsRow>();
+  return result.results;
+}
+
+export async function markWeatherChecked(db: D1Database, lineAccountId: string): Promise<void> {
+  await db.prepare(`UPDATE card_settings SET weather_last_checked_at = ? WHERE line_account_id = ?`)
+    .bind(jstNow(), lineAccountId).run();
 }
 
 // --- card_ranks ---

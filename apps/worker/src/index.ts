@@ -22,6 +22,7 @@ import { runExpirer } from './services/booking-expirer.js';
 import { processDueEventReminders } from './services/event-booking-reminders.js';
 import { runEventBookingExpirer } from './services/event-booking-expirer.js';
 import { processCardCouponExpiryReminders } from './services/card-coupon-reminders.js';
+import { processWeatherMultiplierToggles } from './services/weather-multiplier.js';
 import { sendEventBookingNotification } from './services/event-booking-notifier.js';
 import { sendBookingNotification } from './services/booking-notifier.js';
 import { DEFAULT_ACCOUNT_SETTINGS } from './services/booking-types.js';
@@ -75,6 +76,7 @@ import { cardSettings } from './routes/card-settings.js';
 import { cardRanks } from './routes/card-ranks.js';
 import { pointMultiplierRules } from './routes/point-multiplier-rules.js';
 import { couponTemplates } from './routes/coupon-templates.js';
+import { stampGrant } from './routes/stamp-grant.js';
 import { trafficPools } from './routes/traffic-pools.js';
 import { meetCallback } from './routes/meet-callback.js';
 import { messageTemplates } from './routes/message-templates.js';
@@ -193,6 +195,7 @@ app.route('/', cardSettings);
 app.route('/', cardRanks);
 app.route('/', pointMultiplierRules);
 app.route('/', couponTemplates);
+app.route('/', stampGrant);
 app.route('/', accountSettings);
 app.route('/', meetCallback);
 app.route('/', messageTemplates);
@@ -677,6 +680,16 @@ async function scheduled(
     }
   } catch (e) {
     console.error('card-coupon-reminders error:', e);
+  }
+
+  // 天候連動ポイント倍率の自動ON/OFF — 5分tickに乗せるが内部で店舗ごとに約30分間隔へ自己スロットル。
+  try {
+    const result = await processWeatherMultiplierToggles(env.DB, new Date());
+    if (result.checked > 0) {
+      console.log(`[weather-multiplier] checked=${result.checked}`);
+    }
+  } catch (e) {
+    console.error('weather-multiplier error:', e);
   }
 
   // Stamp card / coupon expirer — 6h cron tick.

@@ -161,8 +161,12 @@ export async function getUserCoupons(
   return result.results;
 }
 
-/** スタッフによる「消し込み」(使用済みへの変更)。期限切れ/使用済みは不可。 */
-export async function markCouponUsed(db: D1Database, couponId: string, staffId: string): Promise<{ success: boolean; error?: string }> {
+/**
+ * スタッフによる「消し込み」(使用済みへの変更)。期限切れ/使用済みは不可。
+ * staffId は null 可 — QRスキャン経由の消し込みは個別スタッフのログイン無しで動くため、
+ * 誰が消し込んだか追跡できないケースを許容する (店舗用 staff_members との連携は未実装)。
+ */
+export async function markCouponUsed(db: D1Database, couponId: string, staffId: string | null): Promise<{ success: boolean; error?: string }> {
   const coupon = await getUserCouponById(db, couponId);
   if (!coupon) return { success: false, error: 'not_found' };
   if (coupon.status !== 'unused') return { success: false, error: `already_${coupon.status}` };

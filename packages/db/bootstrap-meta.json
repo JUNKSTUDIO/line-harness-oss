@@ -52,7 +52,8 @@
     "044_forms_og.sql",
     "045_menus_auto_tag.sql",
     "046_stamp_card_coupon_system.sql",
-    "047_card_settings_stamp_image.sql"
+    "047_card_settings_stamp_image.sql",
+    "048_card_settings_weather_location.sql"
   ],
-  "migrationCount": 53
+  "migrationCount": 54
 }

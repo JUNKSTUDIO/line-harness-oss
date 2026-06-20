@@ -451,6 +451,22 @@ async function initEventBooking(initialKind: 'detail' | 'history'): Promise<void
 // ─── Stamp Card (React, dynamic-imported) ────────────────
 
 async function initStampCard(): Promise<void> {
+  // QRスキャン経由の付与確認画面 (action=grant&token=...) はトークン自体が認可情報。
+  // スキャンする側 (店舗スタッフ) のLINEプロフィール取得・友だち判定は不要なので、
+  // 通常の初期化シーケンスを完全にスキップして直接マウントする。
+  const earlyParams = new URLSearchParams(window.location.search);
+  if (earlyParams.get('action') === 'grant') {
+    const token = earlyParams.get('token');
+    const container = document.getElementById('app');
+    if (!container || !token) {
+      showError('QRコードが無効です');
+      return;
+    }
+    const { mountStampCard } = await import('./stamp-card/main.js');
+    mountStampCard(container, { liffId: LIFF_ID, lineUserId: '', idToken: '' }, { kind: 'grant', token });
+    return;
+  }
+
   // salon-booking / event-booking と同じ初期化シーケンス: profile/idToken/friendship
   // 取得、未友達なら friend-add gate、友達なら React mount。
   const [profile, idToken, friendship] = await Promise.all([

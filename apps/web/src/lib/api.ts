@@ -140,6 +140,9 @@ export interface CardSettings {
   reminder_days_before: number
   reservation_url: string | null
   stamp_image_url: string | null
+  shop_latitude: number | null
+  shop_longitude: number | null
+  weather_last_checked_at?: string | null
   created_at?: string
   updated_at?: string
 }
