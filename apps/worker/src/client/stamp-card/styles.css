@@ -1,0 +1,144 @@
+/* stamp-card 専用 CSS。event-booking / salon-booking と同じパターン。
+ * Tailwind v4: theme + utilities を取り込み、preflight (base reset) は除外。
+ * preflight を含めると既存 form.ts / Calendar booking 用 inline CSS と衝突する
+ * ため、stamp-card namespace (body.sc-active 配下) にだけ手動 reset を当てる。
+ */
+@import "tailwindcss/theme.css";
+@import "tailwindcss/utilities.css";
+
+body.sc-active {
+  display: block !important;
+  align-items: stretch !important;
+}
+body.sc-active #app {
+  max-width: none !important;
+  padding: 0 !important;
+  width: 100% !important;
+}
+
+:where(body.sc-active),
+:where(body.sc-active) *,
+:where(body.sc-active) *::before,
+:where(body.sc-active) *::after {
+  box-sizing: border-box;
+}
+:where(body.sc-active) button {
+  font-family: inherit;
+  font-size: 100%;
+  font-weight: inherit;
+  line-height: inherit;
+  color: inherit;
+  margin: 0;
+  padding: 0;
+  background-color: transparent;
+  background-image: none;
+  border: 0;
+  cursor: pointer;
+}
+:where(body.sc-active) button:disabled { cursor: not-allowed; }
+:where(body.sc-active) a { color: inherit; text-decoration: inherit; }
+:where(body.sc-active) ul { list-style: none; padding: 0; margin: 0; }
+
+.sc-line-green-text { color: #06C755; }
+
+@keyframes sc-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.sc-fade-in { animation: sc-fade-in 0.25s ease both; }
+
+@keyframes sc-slide-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.sc-slide-up { animation: sc-slide-up 0.3s ease both; }
+
+@keyframes sc-spin { to { transform: rotate(360deg); } }
+.sc-spinner {
+  width: 32px; height: 32px;
+  border: 3px solid #e5e7eb;
+  border-top-color: #06C755;
+  border-radius: 9999px;
+  animation: sc-spin 0.8s linear infinite;
+}
+
+.sc-card {
+  background: #fff;
+  border-radius: 14px;
+  padding: 18px 16px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.06);
+}
+
+.sc-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.sc-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 14px 8px 10px;
+  font-size: 13px;
+  color: #4b5563;
+  background: #fff;
+  border-radius: 9999px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+}
+
+/* スタンプ進捗バー */
+.sc-meter {
+  width: 100%;
+  height: 10px;
+  background: #f1f5f9;
+  border-radius: 9999px;
+  overflow: hidden;
+}
+.sc-meter-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #06C755, #34d399);
+  border-radius: 9999px;
+  transition: width 0.3s ease;
+}
+
+/* 延長セクション (期限間近 = warning トーン。プッシュ通知のFlexヘッダーと色を統一) */
+.sc-extend-card {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 14px;
+  padding: 16px;
+}
+.sc-extend-card.sc-extend-done {
+  background: #ecfdf5;
+  border-color: #86efac;
+}
+
+.sc-primary-btn {
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #06C755;
+  color: #fff;
+  font-weight: 700;
+  font-size: 15px;
+  text-align: center;
+  box-shadow: 0 2px 4px rgba(6,199,85,0.18);
+}
+.sc-primary-btn:active { transform: scale(0.98); }
+
+.sc-secondary-btn {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #fff;
+  color: #c2410c;
+  font-weight: 600;
+  font-size: 13px;
+  border: 1.5px solid #fb923c;
+}
+.sc-secondary-btn:disabled { opacity: 0.5; }

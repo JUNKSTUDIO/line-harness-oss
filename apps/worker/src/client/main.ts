@@ -448,6 +448,68 @@ async function initEventBooking(initialKind: 'detail' | 'history'): Promise<void
   mountEventBooking(container, ctx, initial);
 }
 
+// ─── Stamp Card (React, dynamic-imported) ────────────────
+
+async function initStampCard(): Promise<void> {
+  // salon-booking / event-booking と同じ初期化シーケンス: profile/idToken/friendship
+  // 取得、未友達なら friend-add gate、友達なら React mount。
+  const [profile, idToken, friendship] = await Promise.all([
+    liff.getProfile(),
+    Promise.resolve(liff.getIDToken()),
+    liff.getFriendship(),
+  ]);
+  if (!idToken) {
+    showError('LINE 認証情報の取得に失敗しました。LINE アプリ内で再度開いてください。');
+    return;
+  }
+
+  const existingUuid = getSavedUuid();
+  const ref = getRef();
+
+  apiCall('/api/liff/link', {
+    method: 'POST',
+    body: JSON.stringify({
+      idToken,
+      displayName: profile.displayName,
+      existingUuid,
+      ref: ref || undefined,
+    }),
+  })
+    .then(async (res) => {
+      if (res.ok) {
+        const data = (await res.json()) as { success: boolean; data?: { userId?: string } };
+        if (data?.data?.userId) saveUuid(data.data.userId);
+      }
+    })
+    .catch(() => {
+      /* silent */
+    });
+
+  if (!friendship.friendFlag) {
+    showFriendAdd(profile);
+    return;
+  }
+
+  const container = document.getElementById('app');
+  if (!container) {
+    showError('mount target #app が見つかりません');
+    return;
+  }
+  // 期限リマインドのFlexボタン (action=extend&kind=card|coupon&id=<id>) から開かれた
+  // 場合は、延長確認画面を直接表示する。
+  const params = new URLSearchParams(window.location.search);
+  const action = params.get('action');
+  const kind = params.get('kind');
+  const id = params.get('id');
+  const ctx = { liffId: LIFF_ID, lineUserId: profile.userId, idToken };
+  const { mountStampCard } = await import('./stamp-card/main.js');
+  if (action === 'extend' && (kind === 'card' || kind === 'coupon') && id) {
+    mountStampCard(container, ctx, { kind: 'extend', target: kind, id });
+  } else {
+    mountStampCard(container, ctx, { kind: 'card' });
+  }
+}
+
 // ─── Entry Point ────────────────────────────────────────
 
 async function main() {
@@ -479,6 +541,8 @@ async function main() {
       await initEventBooking('detail');
     } else if (page === 'event-me') {
       await initEventBooking('history');
+    } else if (page === 'stamp-card') {
+      await initStampCard();
     } else if (page === 'form') {
       const params = new URLSearchParams(window.location.search);
       const formId = params.get('id');
