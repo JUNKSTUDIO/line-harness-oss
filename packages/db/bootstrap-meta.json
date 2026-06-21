@@ -64,7 +64,8 @@
     "056_friend_anniversary_and_birthday.sql",
     "057_coupon_usage_policy.sql",
     "058_birthday_coupon.sql",
-    "059_reminder_button_labels.sql"
+    "059_reminder_button_labels.sql",
+    "060_coupon_template_message_fk_fix.sql"
   ],
-  "migrationCount": 65
+  "migrationCount": 66
 }

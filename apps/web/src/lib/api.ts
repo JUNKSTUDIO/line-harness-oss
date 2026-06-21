@@ -594,7 +594,7 @@ export const api = {
     create: (body: {
       accountId: string; name: string; description?: string | null
       validityType: CouponTemplate['validity_type']; validityDays?: number | null; absoluteExpiresAt?: string | null
-      imageUrl?: string | null; usagePolicy?: CouponTemplate['usage_policy']
+      imageUrl?: string | null; usagePolicy?: CouponTemplate['usage_policy']; messageTemplateId?: string | null
     }) => fetchApi<ApiResponse<CouponTemplate>>('/api/coupon-templates', { method: 'POST', body: JSON.stringify(body) }),
     update: (id: string, body: Record<string, unknown>) =>
       fetchApi<ApiResponse<CouponTemplate>>(`/api/coupon-templates/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),

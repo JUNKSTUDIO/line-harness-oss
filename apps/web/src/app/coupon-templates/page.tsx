@@ -14,13 +14,21 @@ const EMPTY_FORM = {
   absoluteExpiresAt: '',
   imageUrl: null as string | null,
   usagePolicy: 'single_use' as CouponTemplate['usage_policy'],
+  messageTemplateId: null as string | null,
 }
 
 type EditForm = typeof EMPTY_FORM
 
+interface MessageTemplateOption {
+  id: string
+  name: string
+  messageType: string
+}
+
 export default function CouponTemplatesPage() {
   const { selectedAccount, loading: accountLoading } = useAccount()
   const [templates, setTemplates] = useState<CouponTemplate[]>([])
+  const [messageTemplates, setMessageTemplates] = useState<MessageTemplateOption[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [form, setForm] = useState(EMPTY_FORM)
@@ -34,9 +42,10 @@ export default function CouponTemplatesPage() {
   async function load() {
     if (!selectedAccount) return
     setLoading(true)
-    const [templatesRes, settingsRes] = await Promise.all([
+    const [templatesRes, settingsRes, messageTemplatesRes] = await Promise.all([
       api.couponTemplates.list(selectedAccount.id),
       api.cardSettings.get(selectedAccount.id),
+      api.templates.list(),
     ])
     if (templatesRes.success) setTemplates(templatesRes.data)
     else setError(templatesRes.error)
@@ -44,6 +53,7 @@ export default function CouponTemplatesPage() {
       setBirthdayEnabled(settingsRes.data.birthday_coupon_enabled)
       setBirthdayTemplateId(settingsRes.data.birthday_coupon_template_id)
     }
+    if (messageTemplatesRes.success) setMessageTemplates(messageTemplatesRes.data)
     setLoading(false)
   }
 
@@ -75,6 +85,7 @@ export default function CouponTemplatesPage() {
         absoluteExpiresAt: form.validityType === 'absolute_date' ? form.absoluteExpiresAt : undefined,
         imageUrl: form.imageUrl,
         usagePolicy: form.usagePolicy,
+        messageTemplateId: form.messageTemplateId,
       })
       if (res.success) {
         setForm(EMPTY_FORM)
@@ -97,6 +108,7 @@ export default function CouponTemplatesPage() {
       absoluteExpiresAt: t.absolute_expires_at ?? '',
       imageUrl: t.image_url,
       usagePolicy: t.usage_policy,
+      messageTemplateId: t.message_template_id,
     })
   }
 
@@ -113,6 +125,7 @@ export default function CouponTemplatesPage() {
         absoluteExpiresAt: editForm.validityType === 'absolute_date' ? editForm.absoluteExpiresAt : null,
         imageUrl: editForm.imageUrl,
         usagePolicy: editForm.usagePolicy,
+        messageTemplateId: editForm.messageTemplateId,
       })
       if (res.success) {
         setTemplates((ts) => ts.map((t) => (t.id === editingId ? res.data : t)))
@@ -228,6 +241,13 @@ export default function CouponTemplatesPage() {
                       <option value="unlimited_in_period">有効期限内は何度でも使える</option>
                     </select>
                   </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">獲得時に送るメッセージ（「テンプレート」で作成したリッチメッセージを選べます）</label>
+                    <select value={editForm.messageTemplateId ?? ''} onChange={(e) => setEditForm({ ...editForm, messageTemplateId: e.target.value || null })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                      <option value="">通常のテキスト通知（既定）</option>
+                      {messageTemplates.map((mt) => <option key={mt.id} value={mt.id}>{mt.name}（{mt.messageType}）</option>)}
+                    </select>
+                  </div>
                   <ImageUploader
                     mode="url"
                     value={editForm.imageUrl ? { mode: 'url', url: editForm.imageUrl } : null}
@@ -254,6 +274,9 @@ export default function CouponTemplatesPage() {
                       {t.description}
                       {t.description && ' · '}
                       {t.validity_type === 'relative_days' ? `発行から${t.validity_days}日間有効` : `${t.absolute_expires_at}まで有効`}
+                      {t.message_template_id && (
+                        <> · <span className="text-emerald-700">獲得時にリッチメッセージを送信</span></>
+                      )}
                     </div>
                   </div>
                   <button onClick={() => startEdit(t)} className="text-xs text-gray-700 underline">編集</button>
@@ -299,6 +322,13 @@ export default function CouponTemplatesPage() {
             <select value={form.usagePolicy} onChange={(e) => setForm({ ...form, usagePolicy: e.target.value as CouponTemplate['usage_policy'] })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
               <option value="single_use">1回だけ使える（既定）</option>
               <option value="unlimited_in_period">有効期限内は何度でも使える</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">獲得時に送るメッセージ（「テンプレート」で作成したリッチメッセージを選べます）</label>
+            <select value={form.messageTemplateId ?? ''} onChange={(e) => setForm({ ...form, messageTemplateId: e.target.value || null })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+              <option value="">通常のテキスト通知（既定）</option>
+              {messageTemplates.map((mt) => <option key={mt.id} value={mt.id}>{mt.name}（{mt.messageType}）</option>)}
             </select>
           </div>
           <ImageUploader

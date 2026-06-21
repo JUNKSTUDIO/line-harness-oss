@@ -35,6 +35,7 @@ couponTemplates.post('/api/coupon-templates', async (c) => {
     absoluteExpiresAt?: string | null;
     imageUrl?: string | null;
     usagePolicy?: CouponTemplateRow['usage_policy'];
+    messageTemplateId?: string | null;
   }>();
   if (!body.accountId || !body.name || !body.validityType) {
     return c.json({ success: false, error: 'accountId, name, validityType required' }, 400);
@@ -48,6 +49,7 @@ couponTemplates.post('/api/coupon-templates', async (c) => {
     absoluteExpiresAt: body.absoluteExpiresAt,
     imageUrl: body.imageUrl,
     usagePolicy: body.usagePolicy,
+    messageTemplateId: body.messageTemplateId,
   });
   return c.json({ success: true, data: template }, 201);
 });

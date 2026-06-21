@@ -299,18 +299,20 @@ CREATE TABLE conversion_points (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
 );
 
-CREATE TABLE coupon_templates (
+CREATE TABLE "coupon_templates" (
   id                    TEXT PRIMARY KEY,
   line_account_id       TEXT NOT NULL REFERENCES line_accounts(id) ON DELETE CASCADE,
   name                  TEXT NOT NULL,
   description           TEXT,
   validity_type         TEXT NOT NULL DEFAULT 'relative_days' CHECK (validity_type IN ('relative_days', 'absolute_date')),
-  validity_days         INTEGER,                        -- validity_type='relative_days'
-  absolute_expires_at   TEXT,                           -- validity_type='absolute_date'
-  message_template_id   TEXT REFERENCES message_templates(id) ON DELETE SET NULL,
+  validity_days         INTEGER,
+  absolute_expires_at   TEXT,
+  message_template_id   TEXT REFERENCES templates(id) ON DELETE SET NULL,
   is_active             INTEGER NOT NULL DEFAULT 1,
   created_at            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
-  updated_at            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')), image_url TEXT, usage_policy TEXT NOT NULL DEFAULT 'single_use' CHECK (usage_policy IN ('single_use', 'unlimited_in_period')),
+  updated_at            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  image_url             TEXT,
+  usage_policy          TEXT NOT NULL DEFAULT 'single_use' CHECK (usage_policy IN ('single_use', 'unlimited_in_period')),
   CHECK (
     (validity_type = 'relative_days' AND validity_days IS NOT NULL) OR
     (validity_type = 'absolute_date' AND absolute_expires_at IS NOT NULL)

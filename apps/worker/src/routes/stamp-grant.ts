@@ -13,6 +13,7 @@ import {
   getCardRanks,
   grantStamp,
   issueCoupon,
+  getCouponTemplateById,
   getUserCoupons,
   redeemCoupon,
   countCouponRedemptions,
@@ -31,6 +32,7 @@ import {
 import { signGrantToken, verifyGrantToken, signOperatorRegistrationToken, verifyOperatorRegistrationToken } from '../lib/qr-token.js';
 import { verifyCallerLineUserId, verifyCallerProfile } from '../services/liff-auth.js';
 import { applyRankUpRichMenu } from '../services/rank-rich-menu.js';
+import { sendCouponIssuedNotification } from '../services/card-coupon-notifier.js';
 import type { Env } from '../index.js';
 
 const stampGrant = new Hono<Env>();
@@ -173,12 +175,15 @@ stampGrant.post('/api/liff/stamp-cards/grant', async (c) => {
       issuedVia: 'rank_clear',
       sourceUserCardId: result.card.id,
     });
-    const { LineClient } = await import('@line-crm/line-sdk');
-    const client = new LineClient(account.channel_access_token);
-    await client.pushTextMessage(
-      friend.line_user_id,
-      `ランクアップおめでとうございます！クーポンを発行しました（有効期限: ${new Date(coupon.expires_at).toLocaleDateString('ja-JP')}まで）。`,
-    );
+    const template = await getCouponTemplateById(c.env.DB, result.issuedCoupon.templateId);
+    await sendCouponIssuedNotification({
+      db: c.env.DB,
+      channelAccessToken: account.channel_access_token,
+      toLineUserId: friend.line_user_id,
+      liffId: account.liff_id,
+      messageTemplateId: template?.message_template_id ?? null,
+      fallbackText: `ランクアップおめでとうございます！クーポンを発行しました（有効期限: ${new Date(coupon.expires_at).toLocaleDateString('ja-JP')}まで）。`,
+    });
   }
 
   if (result.rankedUp && account) {
@@ -188,8 +193,6 @@ stampGrant.post('/api/liff/stamp-cards/grant', async (c) => {
   // ランク内マイルストーン (例: 10個中5個でクーポン) — 今回の付与で新たに到達した分だけ発行する。
   const milestoneCouponNames: string[] = [];
   if (result.milestonesCrossed.length > 0 && account && friend) {
-    const { LineClient } = await import('@line-crm/line-sdk');
-    const client = new LineClient(account.channel_access_token);
     for (const m of result.milestonesCrossed) {
       const coupon = await issueCoupon(c.env.DB, {
         friendId: payload.friendId,
@@ -200,10 +203,15 @@ stampGrant.post('/api/liff/stamp-cards/grant', async (c) => {
       });
       await recordMilestoneIssued(c.env.DB, { userCardId: result.card.id, milestoneId: m.milestoneId, issuedCouponId: coupon.id });
       milestoneCouponNames.push(coupon.coupon_name_at_issuance ?? 'クーポン');
-      await client.pushTextMessage(
-        friend.line_user_id,
-        `「${coupon.coupon_name_at_issuance ?? 'クーポン'}」を獲得しました！（有効期限: ${new Date(coupon.expires_at).toLocaleDateString('ja-JP')}まで）。`,
-      );
+      const template = await getCouponTemplateById(c.env.DB, m.couponTemplateId);
+      await sendCouponIssuedNotification({
+        db: c.env.DB,
+        channelAccessToken: account.channel_access_token,
+        toLineUserId: friend.line_user_id,
+        liffId: account.liff_id,
+        messageTemplateId: template?.message_template_id ?? null,
+        fallbackText: `「${coupon.coupon_name_at_issuance ?? 'クーポン'}」を獲得しました！（有効期限: ${new Date(coupon.expires_at).toLocaleDateString('ja-JP')}まで）。`,
+      });
     }
   }
 

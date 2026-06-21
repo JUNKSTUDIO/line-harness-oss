@@ -353,6 +353,7 @@ export interface BirthdayCouponCandidate {
   line_account_id: string;
   line_user_id: string;
   channel_access_token: string;
+  liff_id: string | null;
   birthday_coupon_template_id: string;
 }
 
@@ -360,7 +361,7 @@ export interface BirthdayCouponCandidate {
 export async function getBirthdayCouponCandidates(db: D1Database, targetMonth: number, targetYear: number): Promise<BirthdayCouponCandidate[]> {
   const result = await db
     .prepare(
-      `SELECT uc.friend_id, uc.line_account_id, f.line_user_id, la.channel_access_token, cs.birthday_coupon_template_id
+      `SELECT uc.friend_id, uc.line_account_id, f.line_user_id, la.channel_access_token, la.liff_id, cs.birthday_coupon_template_id
          FROM user_cards uc
          INNER JOIN friends f ON f.id = uc.friend_id
          INNER JOIN line_accounts la ON la.id = uc.line_account_id

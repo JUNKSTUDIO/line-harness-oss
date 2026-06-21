@@ -6,6 +6,7 @@ interface CandidateRow {
   line_account_id: string;
   line_user_id: string;
   channel_access_token: string;
+  liff_id: string | null;
   birthday_coupon_template_id: string;
 }
 
@@ -39,7 +40,7 @@ function stubDB(candidates: CandidateRow[]) {
         },
         async first() {
           if (sql.includes('FROM coupon_templates')) {
-            return { id: 'tpl-1', name: '誕生月クーポン', description: null, image_url: null, usage_policy: 'single_use', validity_type: 'relative_days', validity_days: 30, absolute_expires_at: null };
+            return { id: 'tpl-1', name: '誕生月クーポン', description: null, image_url: null, usage_policy: 'single_use', validity_type: 'relative_days', validity_days: 30, absolute_expires_at: null, message_template_id: null };
           }
           if (sql.includes('FROM user_coupons')) return issuedCoupon;
           return null;
@@ -56,28 +57,29 @@ const candidate: CandidateRow = {
   line_account_id: 'acc-1',
   line_user_id: 'Uxxxx',
   channel_access_token: 'tok',
+  liff_id: null,
   birthday_coupon_template_id: 'tpl-1',
 };
 
 describe('processBirthdayCoupons', () => {
   test('issues a coupon expiring at the end of the current JST month and notifies the friend', async () => {
     const { db } = stubDB([candidate]);
-    const sent: Array<{ to: string; text: string }> = [];
+    const sent: Array<{ to: string; message: { type: string; text?: string } }> = [];
     const result = await processBirthdayCoupons(db, {
       now: new Date('2026-04-10T00:00:00.000Z'),
-      sendPush: async (_token, to, text) => { sent.push({ to, text }); },
+      sender: async (_token, to, message) => { sent.push({ to, message }); },
     });
     expect(result).toEqual({ issued: 1, failed: 0 });
     expect(sent).toHaveLength(1);
     expect(sent[0].to).toBe('Uxxxx');
-    expect(sent[0].text).toContain('誕生月クーポン');
+    expect(sent[0].message.text).toContain('誕生月クーポン');
   });
 
-  test('reports a failure without throwing when sendPush rejects', async () => {
+  test('reports a failure without throwing when the sender rejects', async () => {
     const { db } = stubDB([candidate]);
     const result = await processBirthdayCoupons(db, {
       now: new Date('2026-04-10T00:00:00.000Z'),
-      sendPush: async () => { throw new Error('push failed'); },
+      sender: async () => { throw new Error('push failed'); },
     });
     expect(result).toEqual({ issued: 0, failed: 1 });
   });

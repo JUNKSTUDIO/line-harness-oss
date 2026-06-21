@@ -2,8 +2,10 @@
 // booking-notifier.ts と同じ「pure render + sender」分割パターン。
 
 import { LineClient, flexBubble, flexBox, flexText, flexButton, flexMessage } from '@line-crm/line-sdk';
-import type { FlexBubble } from '@line-crm/line-sdk';
-import { getLineAccountById } from '@line-crm/db';
+import type { FlexBubble, Message } from '@line-crm/line-sdk';
+import { getLineAccountById, getTemplateById } from '@line-crm/db';
+import { buildMessage } from './broadcast.js';
+import { renderMessageContent } from './render-message.js';
 
 export type ExpiryReminderKind = 'card' | 'coupon';
 
@@ -112,4 +114,34 @@ export async function resolveExtendLiffUrl(
     return `https://liff.line.me/${account.liff_id}?${params.toString()}`;
   }
   return envLiffUrl ? `${envLiffUrl}?${params.toString()}` : '#';
+}
+
+export type CouponIssuedSender = (channelAccessToken: string, toLineUserId: string, message: Message) => Promise<unknown>;
+
+/**
+ * クーポン発行 (ランク到達/中間マイルストーン/誕生月) の通知。
+ * coupon_templates.message_template_id が設定されていれば、管理画面の「テンプレート」で
+ * 事前に作成した Flex/テキストメッセージをそのまま送る (要件: リッチメッセージを先に作って配信したい)。
+ * 未設定なら呼び出し側が用意した文言にフォールバックする。
+ */
+export async function sendCouponIssuedNotification(params: {
+  db: D1Database;
+  channelAccessToken: string;
+  toLineUserId: string;
+  liffId: string | null;
+  messageTemplateId: string | null;
+  fallbackText: string;
+  sender?: CouponIssuedSender;
+}): Promise<void> {
+  const sender = params.sender ?? ((token, to, message) => new LineClient(token).pushMessage(to, [message]));
+
+  let message: Message = { type: 'text', text: params.fallbackText };
+  if (params.messageTemplateId) {
+    const template = await getTemplateById(params.db, params.messageTemplateId);
+    if (template) {
+      const renderedContent = renderMessageContent(template.message_content, params.liffId);
+      message = buildMessage(template.message_type, renderedContent);
+    }
+  }
+  await sender(params.channelAccessToken, params.toLineUserId, message);
 }

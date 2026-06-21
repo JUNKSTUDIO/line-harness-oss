@@ -861,9 +861,9 @@ function CouponListScreen({ ctx, onBack }: { ctx: StampCardContext; onBack: () =
               <button onClick={() => setActiveCoupon(coupon)} className="sc-card !p-0 overflow-hidden w-full text-left block">
                 <div className="flex">
                   {coupon.imageUrl ? (
-                    <img src={coupon.imageUrl} alt="" className="w-20 h-20 object-cover shrink-0" />
+                    <img src={coupon.imageUrl} alt="" className="w-20 self-stretch object-cover shrink-0" />
                   ) : (
-                    <div className="w-20 h-20 bg-gradient-to-br from-green-100 to-green-200 shrink-0 flex items-center justify-center text-2xl">🎟️</div>
+                    <div className="w-20 self-stretch bg-gradient-to-br from-green-100 to-green-200 shrink-0 flex items-center justify-center text-2xl">🎟️</div>
                   )}
                   <div className="flex-1 min-w-0 p-3">
                     <div className="flex items-start justify-between gap-2">

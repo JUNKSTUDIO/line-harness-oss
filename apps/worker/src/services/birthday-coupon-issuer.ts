@@ -2,14 +2,14 @@
 // 友だちで、今月が誕生月かつ今年まだ発行していない人にクーポンを発行し、お知らせのpushを送る。
 // 有効期限はテンプレートの既定値ではなく「誕生月の末日 (JST 23:59:59)」に固定する。
 
-import { getBirthdayCouponCandidates, markBirthdayCouponIssued, issueCoupon } from '@line-crm/db';
-import { LineClient } from '@line-crm/line-sdk';
+import { getBirthdayCouponCandidates, markBirthdayCouponIssued, issueCoupon, getCouponTemplateById } from '@line-crm/db';
+import { sendCouponIssuedNotification, type CouponIssuedSender } from './card-coupon-notifier.js';
 
 const JST_OFFSET_MS = 9 * 60 * 60_000;
 
 export interface ProcessBirthdayCouponsParams {
   now: Date;
-  sendPush?: (channelAccessToken: string, lineUserId: string, text: string) => Promise<unknown>;
+  sender?: CouponIssuedSender;
 }
 
 function endOfMonthJstIso(year: number, month1to12: number): string {
@@ -23,7 +23,6 @@ export async function processBirthdayCoupons(
   db: D1Database,
   params: ProcessBirthdayCouponsParams,
 ): Promise<{ issued: number; failed: number }> {
-  const sendPush = params.sendPush ?? ((token: string, to: string, text: string) => new LineClient(token).pushTextMessage(to, text));
   let issued = 0;
   let failed = 0;
 
@@ -48,11 +47,16 @@ export async function processBirthdayCoupons(
         year: targetYear,
         issuedCouponId: coupon.id,
       });
-      await sendPush(
-        candidate.channel_access_token,
-        candidate.line_user_id,
-        `お誕生日おめでとうございます🎉「${coupon.coupon_name_at_issuance ?? 'クーポン'}」を誕生月クーポンとして発行しました。今月中ぜひご利用ください。`,
-      );
+      const template = await getCouponTemplateById(db, candidate.birthday_coupon_template_id);
+      await sendCouponIssuedNotification({
+        db,
+        channelAccessToken: candidate.channel_access_token,
+        toLineUserId: candidate.line_user_id,
+        liffId: candidate.liff_id,
+        messageTemplateId: template?.message_template_id ?? null,
+        fallbackText: `お誕生日おめでとうございます🎉「${coupon.coupon_name_at_issuance ?? 'クーポン'}」を誕生月クーポンとして発行しました。今月中ぜひご利用ください。`,
+        sender: params.sender,
+      });
       issued++;
     } catch (e) {
       console.error('[birthday-coupon-issuer] issue failed', candidate.friend_id, e);
