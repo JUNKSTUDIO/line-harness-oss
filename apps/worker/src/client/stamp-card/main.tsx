@@ -635,6 +635,8 @@ function GrantScreen({ ctx, token }: { ctx: StampCardContext; token: string }) {
   const [redeemedIds, setRedeemedIds] = useState<Set<string>>(new Set());
   const [redemptionCounts, setRedemptionCounts] = useState<Record<string, number>>({});
   const [activeCoupon, setActiveCoupon] = useState<GrantPreview['coupons'][number] | null>(null);
+  const [pendingRedeem, setPendingRedeem] = useState<GrantPreview['coupons'][number] | null>(null);
+  const [redeeming, setRedeeming] = useState(false);
 
   useEffect(() => {
     fetchJson<{ success: boolean; data: GrantPreview }>(
@@ -683,6 +685,18 @@ function GrantScreen({ ctx, token }: { ctx: StampCardContext; token: string }) {
       }
     } catch (e) {
       setError(describeOperatorError((e as { code?: string }).code));
+    }
+  }
+
+  // 誤タップ防止: ボタンを押した直後にはまだ消し込まず、確認ポップアップでの再タップを必須にする。
+  async function confirmRedeem() {
+    if (!pendingRedeem) return;
+    setRedeeming(true);
+    try {
+      await redeem(pendingRedeem.id, pendingRedeem.usagePolicy);
+    } finally {
+      setRedeeming(false);
+      setPendingRedeem(null);
     }
   }
 
@@ -770,13 +784,13 @@ function GrantScreen({ ctx, token }: { ctx: StampCardContext; token: string }) {
                   {cp.name}<span className="text-gray-400">（{formatJpDate(cp.expiresAt)}まで）</span>
                 </button>
                 {cp.usagePolicy === 'unlimited_in_period' ? (
-                  <button onClick={() => redeem(cp.id, cp.usagePolicy)} className="text-xs rounded-md bg-emerald-600 px-3 py-1.5 text-white shrink-0">
+                  <button onClick={() => setPendingRedeem(cp)} className="text-xs rounded-md bg-emerald-600 px-3 py-1.5 text-white shrink-0">
                     利用する（利用回数: {redemptionCounts[cp.id] ?? cp.redemptionCount ?? 0}）
                   </button>
                 ) : redeemedIds.has(cp.id) ? (
                   <span className="text-xs text-emerald-700 shrink-0">使用済みにしました✓</span>
                 ) : (
-                  <button onClick={() => redeem(cp.id, cp.usagePolicy)} className="text-xs rounded-md bg-emerald-600 px-3 py-1.5 text-white shrink-0">
+                  <button onClick={() => setPendingRedeem(cp)} className="text-xs rounded-md bg-emerald-600 px-3 py-1.5 text-white shrink-0">
                     使用済みにする
                   </button>
                 )}
@@ -793,6 +807,26 @@ function GrantScreen({ ctx, token }: { ctx: StampCardContext; token: string }) {
           coupon={{ name: activeCoupon.name, description: activeCoupon.description, imageUrl: activeCoupon.imageUrl, expiresAt: activeCoupon.expiresAt }}
           onClose={() => setActiveCoupon(null)}
         />
+      )}
+
+      {pendingRedeem && (
+        <Modal onClose={() => setPendingRedeem(null)}>
+          <div className="p-4 text-center">
+            <div className="text-sm font-bold text-gray-900">
+              {pendingRedeem.usagePolicy === 'unlimited_in_period' ? 'このクーポンを1回利用しますか？' : '本当にクーポンを使用済みにしますか？'}
+            </div>
+            <div className="text-xs text-gray-600 mt-2">{pendingRedeem.name}</div>
+            {pendingRedeem.usagePolicy !== 'unlimited_in_period' && (
+              <div className="text-xs text-red-600 mt-2">この操作は取り消せません。</div>
+            )}
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setPendingRedeem(null)} disabled={redeeming} className="flex-1 sc-secondary-btn">キャンセル</button>
+              <button onClick={confirmRedeem} disabled={redeeming} className="flex-1 sc-primary-btn">
+                {redeeming ? '処理中...' : '使用する'}
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

@@ -55,6 +55,11 @@ export async function processBirthdayCoupons(
         liffId: candidate.liff_id,
         messageTemplateId: template?.message_template_id ?? null,
         fallbackText: `お誕生日おめでとうございます🎉「${coupon.coupon_name_at_issuance ?? 'クーポン'}」を誕生月クーポンとして発行しました。今月中ぜひご利用ください。`,
+        coupon: {
+          name: coupon.coupon_name_at_issuance ?? 'クーポン',
+          imageUrl: coupon.coupon_image_url_at_issuance,
+          expiresAtJst: new Date(coupon.expires_at).toLocaleDateString('ja-JP'),
+        },
         sender: params.sender,
       });
       issued++;

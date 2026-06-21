@@ -247,6 +247,9 @@ export default function CouponTemplatesPage() {
                       <option value="">通常のテキスト通知（既定）</option>
                       {messageTemplates.map((mt) => <option key={mt.id} value={mt.id}>{mt.name}（{mt.messageType}）</option>)}
                     </select>
+                    <p className="text-xs text-gray-400 mt-1">
+                      テンプレート内で {'{{coupon_name}}'}・{'{{coupon_image_url}}'}・{'{{coupon_expires_at}}'} と書くと、実際に発行されたこのクーポンの名前・画像URL・有効期限に自動で差し替わります。
+                    </p>
                   </div>
                   <ImageUploader
                     mode="url"
@@ -330,6 +333,9 @@ export default function CouponTemplatesPage() {
               <option value="">通常のテキスト通知（既定）</option>
               {messageTemplates.map((mt) => <option key={mt.id} value={mt.id}>{mt.name}（{mt.messageType}）</option>)}
             </select>
+            <p className="text-xs text-gray-400 mt-1">
+              テンプレート内で {'{{coupon_name}}'}・{'{{coupon_image_url}}'}・{'{{coupon_expires_at}}'} と書くと、実際に発行されたこのクーポンの名前・画像URL・有効期限に自動で差し替わります。
+            </p>
           </div>
           <ImageUploader
             mode="url"

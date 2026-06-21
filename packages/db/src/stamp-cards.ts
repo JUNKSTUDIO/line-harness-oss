@@ -794,6 +794,23 @@ export async function grantStamp(
       newStampCount = newStampCount - goal; // 超過分は次ランクに繰り越し
       newRankId = nextRank?.id ?? newRankId; // 最終ランクなら維持 (ゴール到達のまま据え置き)
       rankedUp = true;
+
+      // ランクアップによる繰越分が、新ランク側のマイルストーンを「同じ付与の中で」既に
+      // 満たしているケース (例: 大きい倍率で一気に繰越し、新ランクの「1個達成」まで届く)。
+      // 旧ランク基準のマイルストーン判定 (上の baseline.rankId 側) では新ランクは見ないため、
+      // ここで別途チェックしないと、この回だけクーポンが発行されない不具合になる。
+      if (newRankId && newRankId !== baseline.rankId) {
+        const newRankMilestones = await getCardRankMilestones(db, newRankId);
+        if (newRankMilestones.length > 0) {
+          const alreadyIssuedNewRank = await getIssuedMilestoneIds(db, card.id);
+          for (const m of newRankMilestones) {
+            if (alreadyIssuedNewRank.has(m.id)) continue;
+            if (newStampCount >= m.stamp_threshold) {
+              milestonesCrossed.push({ milestoneId: m.id, couponTemplateId: m.coupon_template_id });
+            }
+          }
+        }
+      }
     }
     // rank_enabled=0 (フラットゴール) はクリアしてもstamp_countを巻き戻さない —
     // 「あと◯個でクリア」表示は呼び出し側で goal との差分として算出する。

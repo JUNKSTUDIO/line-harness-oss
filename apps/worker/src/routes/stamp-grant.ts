@@ -183,6 +183,11 @@ stampGrant.post('/api/liff/stamp-cards/grant', async (c) => {
       liffId: account.liff_id,
       messageTemplateId: template?.message_template_id ?? null,
       fallbackText: `ランクアップおめでとうございます！クーポンを発行しました（有効期限: ${new Date(coupon.expires_at).toLocaleDateString('ja-JP')}まで）。`,
+      coupon: {
+        name: coupon.coupon_name_at_issuance ?? 'クーポン',
+        imageUrl: coupon.coupon_image_url_at_issuance,
+        expiresAtJst: new Date(coupon.expires_at).toLocaleDateString('ja-JP'),
+      },
     });
   }
 
@@ -211,6 +216,11 @@ stampGrant.post('/api/liff/stamp-cards/grant', async (c) => {
         liffId: account.liff_id,
         messageTemplateId: template?.message_template_id ?? null,
         fallbackText: `「${coupon.coupon_name_at_issuance ?? 'クーポン'}」を獲得しました！（有効期限: ${new Date(coupon.expires_at).toLocaleDateString('ja-JP')}まで）。`,
+        coupon: {
+          name: coupon.coupon_name_at_issuance ?? 'クーポン',
+          imageUrl: coupon.coupon_image_url_at_issuance,
+          expiresAtJst: new Date(coupon.expires_at).toLocaleDateString('ja-JP'),
+        },
       });
     }
   }

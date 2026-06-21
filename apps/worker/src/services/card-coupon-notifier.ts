@@ -119,6 +119,18 @@ export async function resolveExtendLiffUrl(
 export type CouponIssuedSender = (channelAccessToken: string, toLineUserId: string, message: Message) => Promise<unknown>;
 
 /**
+ * 管理画面でリッチメッセージを作る際に使える、クーポン発行時だけの差し込みプレースホルダー。
+ * 例: hero画像のurlに {{coupon_image_url}}、本文に {{coupon_name}}・{{coupon_expires_at}} を書いておくと、
+ * 実際に発行されたクーポンの内容に応じて自動で差し替わる。
+ */
+function renderCouponPlaceholders(content: string, coupon: { name: string; imageUrl: string | null; expiresAtJst: string }): string {
+  return content
+    .replaceAll('{{coupon_name}}', coupon.name)
+    .replaceAll('{{coupon_image_url}}', coupon.imageUrl ?? '')
+    .replaceAll('{{coupon_expires_at}}', coupon.expiresAtJst);
+}
+
+/**
  * クーポン発行 (ランク到達/中間マイルストーン/誕生月) の通知。
  * coupon_templates.message_template_id が設定されていれば、管理画面の「テンプレート」で
  * 事前に作成した Flex/テキストメッセージをそのまま送る (要件: リッチメッセージを先に作って配信したい)。
@@ -131,6 +143,7 @@ export async function sendCouponIssuedNotification(params: {
   liffId: string | null;
   messageTemplateId: string | null;
   fallbackText: string;
+  coupon: { name: string; imageUrl: string | null; expiresAtJst: string };
   sender?: CouponIssuedSender;
 }): Promise<void> {
   const sender = params.sender ?? ((token, to, message) => new LineClient(token).pushMessage(to, [message]));
@@ -139,7 +152,7 @@ export async function sendCouponIssuedNotification(params: {
   if (params.messageTemplateId) {
     const template = await getTemplateById(params.db, params.messageTemplateId);
     if (template) {
-      const renderedContent = renderMessageContent(template.message_content, params.liffId);
+      const renderedContent = renderCouponPlaceholders(renderMessageContent(template.message_content, params.liffId), params.coupon);
       message = buildMessage(template.message_type, renderedContent);
     }
   }
