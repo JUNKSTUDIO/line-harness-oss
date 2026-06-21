@@ -27,17 +27,136 @@ function describeCondition(rule: PointMultiplierRule): string {
   }
 }
 
-const EMPTY_FORM = {
+interface RuleForm {
+  name: string
+  multiplier: number
+  conditionType: PointMultiplierRule['condition_type']
+  weekday: number
+  dayOfMonth: number
+  timeStart: string
+  timeEnd: string
+  startsAt: string
+  endsAt: string
+  weatherCondition: NonNullable<PointMultiplierRule['weather_condition']>
+}
+
+const EMPTY_FORM: RuleForm = {
   name: '',
   multiplier: 2,
-  conditionType: 'manual' as PointMultiplierRule['condition_type'],
+  conditionType: 'manual',
   weekday: 0,
   dayOfMonth: 1,
   timeStart: '15:00',
   timeEnd: '17:00',
   startsAt: '',
   endsAt: '',
-  weatherCondition: 'rain' as NonNullable<PointMultiplierRule['weather_condition']>,
+  weatherCondition: 'rain',
+}
+
+function ruleToForm(rule: PointMultiplierRule): RuleForm {
+  return {
+    name: rule.name,
+    multiplier: rule.multiplier,
+    conditionType: rule.condition_type,
+    weekday: rule.weekday ?? 0,
+    dayOfMonth: rule.day_of_month ?? 1,
+    timeStart: rule.time_start ?? '15:00',
+    timeEnd: rule.time_end ?? '17:00',
+    startsAt: rule.starts_at ?? '',
+    endsAt: rule.ends_at ?? '',
+    weatherCondition: rule.weather_condition ?? 'rain',
+  }
+}
+
+function RuleFields({ form, setForm }: { form: RuleForm; setForm: (f: RuleForm) => void }) {
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <div>
+        <label className="block text-xs text-gray-600 mb-1">ルール名</label>
+        <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="例: 雨の日2倍" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+      </div>
+      <div>
+        <label className="block text-xs text-gray-600 mb-1">倍率</label>
+        <input type="number" step={0.5} min={0.5} value={form.multiplier} onChange={(e) => setForm({ ...form, multiplier: Number(e.target.value) })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+      </div>
+      <div className="col-span-2">
+        <label className="block text-xs text-gray-600 mb-1">条件タイプ</label>
+        <select value={form.conditionType} onChange={(e) => setForm({ ...form, conditionType: e.target.value as PointMultiplierRule['condition_type'] })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+          {Object.entries(CONDITION_LABELS).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+        </select>
+      </div>
+      {form.conditionType === 'weather' && (
+        <div className="col-span-2">
+          <label className="block text-xs text-gray-600 mb-1">天候</label>
+          <select value={form.weatherCondition} onChange={(e) => setForm({ ...form, weatherCondition: e.target.value as 'rain' | 'snow' })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <option value="rain">雨</option>
+            <option value="snow">雪</option>
+          </select>
+        </div>
+      )}
+      {form.conditionType === 'weekday' && (
+        <div className="col-span-2">
+          <label className="block text-xs text-gray-600 mb-1">曜日</label>
+          <select value={form.weekday} onChange={(e) => setForm({ ...form, weekday: Number(e.target.value) })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            {WEEKDAY_LABELS.map((label, i) => <option key={i} value={i}>{label}曜日</option>)}
+          </select>
+        </div>
+      )}
+      {form.conditionType === 'day_of_month' && (
+        <div className="col-span-2">
+          <label className="block text-xs text-gray-600 mb-1">何日</label>
+          <input
+            type="number"
+            min={1}
+            max={31}
+            value={form.dayOfMonth}
+            onChange={(e) => setForm({ ...form, dayOfMonth: Number(e.target.value) })}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          />
+          <p className="text-xs text-gray-400 mt-1">31日等、その月に存在しない日を指定した月は適用されません。</p>
+        </div>
+      )}
+      {form.conditionType === 'time_range' && (
+        <>
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">開始時刻</label>
+            <input type="time" value={form.timeStart} onChange={(e) => setForm({ ...form, timeStart: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">終了時刻</label>
+            <input type="time" value={form.timeEnd} onChange={(e) => setForm({ ...form, timeEnd: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+          </div>
+        </>
+      )}
+      {form.conditionType === 'period' && (
+        <>
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">開始日</label>
+            <input type="date" value={form.startsAt} onChange={(e) => setForm({ ...form, startsAt: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">終了日</label>
+            <input type="date" value={form.endsAt} onChange={(e) => setForm({ ...form, endsAt: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function buildPayload(form: RuleForm) {
+  return {
+    name: form.name,
+    multiplier: form.multiplier,
+    conditionType: form.conditionType,
+    weekday: form.conditionType === 'weekday' ? form.weekday : null,
+    dayOfMonth: form.conditionType === 'day_of_month' ? form.dayOfMonth : null,
+    timeStart: form.conditionType === 'time_range' ? form.timeStart : null,
+    timeEnd: form.conditionType === 'time_range' ? form.timeEnd : null,
+    startsAt: form.conditionType === 'period' ? form.startsAt : null,
+    endsAt: form.conditionType === 'period' ? form.endsAt : null,
+    weatherCondition: form.conditionType === 'weather' ? form.weatherCondition : null,
+  }
 }
 
 export default function PointMultiplierRulesPage() {
@@ -45,8 +164,10 @@ export default function PointMultiplierRulesPage() {
   const [rules, setRules] = useState<PointMultiplierRule[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [form, setForm] = useState(EMPTY_FORM)
+  const [form, setForm] = useState<RuleForm>(EMPTY_FORM)
   const [busy, setBusy] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editForm, setEditForm] = useState<RuleForm>(EMPTY_FORM)
 
   async function load() {
     if (!selectedAccount) return
@@ -75,22 +196,32 @@ export default function PointMultiplierRulesPage() {
     setBusy(true)
     setError('')
     try {
-      const res = await api.pointMultiplierRules.create({
-        accountId: selectedAccount.id,
-        name: form.name,
-        multiplier: form.multiplier,
-        conditionType: form.conditionType,
-        weekday: form.conditionType === 'weekday' ? form.weekday : undefined,
-        dayOfMonth: form.conditionType === 'day_of_month' ? form.dayOfMonth : undefined,
-        timeStart: form.conditionType === 'time_range' ? form.timeStart : undefined,
-        timeEnd: form.conditionType === 'time_range' ? form.timeEnd : undefined,
-        startsAt: form.conditionType === 'period' ? form.startsAt : undefined,
-        endsAt: form.conditionType === 'period' ? form.endsAt : undefined,
-        weatherCondition: form.conditionType === 'weather' ? form.weatherCondition : undefined,
-      })
+      const res = await api.pointMultiplierRules.create({ accountId: selectedAccount.id, ...buildPayload(form) })
       if (res.success) {
         setForm(EMPTY_FORM)
         await load()
+      } else {
+        setError(res.error)
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function startEdit(rule: PointMultiplierRule) {
+    setEditingId(rule.id)
+    setEditForm(ruleToForm(rule))
+  }
+
+  async function saveEdit() {
+    if (!editingId) return
+    setBusy(true)
+    setError('')
+    try {
+      const res = await api.pointMultiplierRules.update(editingId, buildPayload(editForm))
+      if (res.success) {
+        setRules((rs) => rs.map((r) => (r.id === editingId ? res.data : r)))
+        setEditingId(null)
       } else {
         setError(res.error)
       }
@@ -117,97 +248,40 @@ export default function PointMultiplierRulesPage() {
             <div className="bg-white border border-gray-200 rounded-xl p-6 text-center text-sm text-gray-400">まだルールがありません</div>
           )}
           {rules.map((rule) => (
-            <div key={rule.id} className="bg-white border border-gray-200 rounded-xl p-4 flex items-center gap-4">
-              <button
-                onClick={() => toggle(rule)}
-                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${rule.is_active ? 'bg-emerald-500' : 'bg-gray-300'}`}
-                aria-label="ON/OFF"
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${rule.is_active ? 'translate-x-6' : 'translate-x-1'}`} />
-              </button>
-              <div className="flex-1 min-w-0">
-                <div className="font-medium text-sm text-gray-900">{rule.name}</div>
-                <div className="text-xs text-gray-500">{CONDITION_LABELS[rule.condition_type]} · {describeCondition(rule)}</div>
-              </div>
-              <div className="text-lg font-bold text-emerald-700">×{rule.multiplier}</div>
-              <button onClick={() => remove(rule.id)} className="text-xs text-rose-600 underline">削除</button>
+            <div key={rule.id} className="bg-white border border-gray-200 rounded-xl p-4">
+              {editingId === rule.id ? (
+                <div className="space-y-3">
+                  <RuleFields form={editForm} setForm={setEditForm} />
+                  <div className="flex gap-3">
+                    <button onClick={saveEdit} disabled={busy} className="text-xs rounded-md bg-emerald-600 px-3 py-1.5 text-white">保存</button>
+                    <button onClick={() => setEditingId(null)} className="text-xs text-gray-500 underline">キャンセル</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-4">
+                  <button
+                    onClick={() => toggle(rule)}
+                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${rule.is_active ? 'bg-emerald-500' : 'bg-gray-300'}`}
+                    aria-label="ON/OFF"
+                  >
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${rule.is_active ? 'translate-x-6' : 'translate-x-1'}`} />
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-sm text-gray-900">{rule.name}</div>
+                    <div className="text-xs text-gray-500">{CONDITION_LABELS[rule.condition_type]} · {describeCondition(rule)}</div>
+                  </div>
+                  <div className="text-lg font-bold text-emerald-700">×{rule.multiplier}</div>
+                  <button onClick={() => startEdit(rule)} className="text-xs text-gray-700 underline">編集</button>
+                  <button onClick={() => remove(rule.id)} className="text-xs text-rose-600 underline">削除</button>
+                </div>
+              )}
             </div>
           ))}
         </div>
 
         <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-3">
           <h2 className="text-sm font-bold text-gray-900">ルールを追加</h2>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-gray-600 mb-1">ルール名</label>
-              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="例: 雨の日2倍" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-600 mb-1">倍率</label>
-              <input type="number" step={0.5} min={0.5} value={form.multiplier} onChange={(e) => setForm({ ...form, multiplier: Number(e.target.value) })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-            </div>
-            <div className="col-span-2">
-              <label className="block text-xs text-gray-600 mb-1">条件タイプ</label>
-              <select value={form.conditionType} onChange={(e) => setForm({ ...form, conditionType: e.target.value as PointMultiplierRule['condition_type'] })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-                {Object.entries(CONDITION_LABELS).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-              </select>
-            </div>
-            {form.conditionType === 'weather' && (
-              <div className="col-span-2">
-                <label className="block text-xs text-gray-600 mb-1">天候</label>
-                <select value={form.weatherCondition} onChange={(e) => setForm({ ...form, weatherCondition: e.target.value as 'rain' | 'snow' })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-                  <option value="rain">雨</option>
-                  <option value="snow">雪</option>
-                </select>
-              </div>
-            )}
-            {form.conditionType === 'weekday' && (
-              <div className="col-span-2">
-                <label className="block text-xs text-gray-600 mb-1">曜日</label>
-                <select value={form.weekday} onChange={(e) => setForm({ ...form, weekday: Number(e.target.value) })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-                  {WEEKDAY_LABELS.map((label, i) => <option key={i} value={i}>{label}曜日</option>)}
-                </select>
-              </div>
-            )}
-            {form.conditionType === 'day_of_month' && (
-              <div className="col-span-2">
-                <label className="block text-xs text-gray-600 mb-1">何日</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={31}
-                  value={form.dayOfMonth}
-                  onChange={(e) => setForm({ ...form, dayOfMonth: Number(e.target.value) })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                />
-                <p className="text-xs text-gray-400 mt-1">31日等、その月に存在しない日を指定した月は適用されません。</p>
-              </div>
-            )}
-            {form.conditionType === 'time_range' && (
-              <>
-                <div>
-                  <label className="block text-xs text-gray-600 mb-1">開始時刻</label>
-                  <input type="time" value={form.timeStart} onChange={(e) => setForm({ ...form, timeStart: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-600 mb-1">終了時刻</label>
-                  <input type="time" value={form.timeEnd} onChange={(e) => setForm({ ...form, timeEnd: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-                </div>
-              </>
-            )}
-            {form.conditionType === 'period' && (
-              <>
-                <div>
-                  <label className="block text-xs text-gray-600 mb-1">開始日</label>
-                  <input type="date" value={form.startsAt} onChange={(e) => setForm({ ...form, startsAt: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-600 mb-1">終了日</label>
-                  <input type="date" value={form.endsAt} onChange={(e) => setForm({ ...form, endsAt: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-                </div>
-              </>
-            )}
-          </div>
+          <RuleFields form={form} setForm={setForm} />
           <button onClick={add} disabled={busy || !form.name} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
             追加
           </button>
