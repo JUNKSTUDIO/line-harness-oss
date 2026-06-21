@@ -56,7 +56,8 @@
     "048_card_settings_weather_location.sql",
     "049_card_settings_address_and_operators.sql",
     "050_user_coupons_name_snapshot.sql",
-    "051_card_settings_weather_anchor.sql"
+    "051_card_settings_weather_anchor.sql",
+    "052_rank_milestones_and_images.sql"
   ],
-  "migrationCount": 57
+  "migrationCount": 58
 }

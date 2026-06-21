@@ -20,6 +20,7 @@ export interface CardSettingsRow {
   weather_check_interval_minutes: number;
   weather_check_anchor_time: string;
   weather_last_checked_at: string | null;
+  rank_badge_layout: 'split' | 'background';
   created_at: string;
   updated_at: string;
 }
@@ -32,6 +33,16 @@ export interface CardRankRow {
   max_stamps: number;
   reward_coupon_template_id: string | null;
   rich_menu_group_id: string | null;
+  image_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CardRankMilestoneRow {
+  id: string;
+  card_rank_id: string;
+  stamp_threshold: number;
+  coupon_template_id: string;
   created_at: string;
   updated_at: string;
 }
@@ -90,8 +101,9 @@ export async function upsertCardSettings(
            line_account_id, stamp_rule_type, amount_per_stamp, signup_bonus_stamps,
            rank_enabled, flat_goal_stamps, card_expiry_months, default_coupon_validity_days,
            reminder_days_before, reservation_url, stamp_image_url, shop_latitude, shop_longitude,
-           shop_address, weather_check_interval_minutes, weather_check_anchor_time, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           shop_address, weather_check_interval_minutes, weather_check_anchor_time, rank_badge_layout,
+           created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         lineAccountId,
@@ -110,6 +122,7 @@ export async function upsertCardSettings(
         input.shop_address ?? null,
         input.weather_check_interval_minutes ?? 30,
         input.weather_check_anchor_time ?? '00:00',
+        input.rank_badge_layout ?? 'split',
         now,
         now,
       )
@@ -197,6 +210,7 @@ export interface CreateCardRankInput {
   maxStamps: number;
   rewardCouponTemplateId?: string | null;
   richMenuGroupId?: string | null;
+  imageUrl?: string | null;
 }
 
 /** 新規ランクを末尾 (現在の最大rank_order + 1) に追加する。 */
@@ -207,10 +221,10 @@ export async function createCardRank(db: D1Database, input: CreateCardRankInput)
   const now = jstNow();
   await db
     .prepare(
-      `INSERT INTO card_ranks (id, line_account_id, name, rank_order, max_stamps, reward_coupon_template_id, rich_menu_group_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO card_ranks (id, line_account_id, name, rank_order, max_stamps, reward_coupon_template_id, rich_menu_group_id, image_url, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(id, input.lineAccountId, input.name, nextOrder, input.maxStamps, input.rewardCouponTemplateId ?? null, input.richMenuGroupId ?? null, now, now)
+    .bind(id, input.lineAccountId, input.name, nextOrder, input.maxStamps, input.rewardCouponTemplateId ?? null, input.richMenuGroupId ?? null, input.imageUrl ?? null, now, now)
     .run();
   return (await getCardRankById(db, id))!;
 }
@@ -218,7 +232,7 @@ export async function createCardRank(db: D1Database, input: CreateCardRankInput)
 export async function updateCardRank(
   db: D1Database,
   id: string,
-  updates: Partial<{ name: string; maxStamps: number; rewardCouponTemplateId: string | null; richMenuGroupId: string | null }>,
+  updates: Partial<{ name: string; maxStamps: number; rewardCouponTemplateId: string | null; richMenuGroupId: string | null; imageUrl: string | null }>,
 ): Promise<CardRankRow | null> {
   const sets: string[] = [];
   const values: unknown[] = [];
@@ -226,11 +240,84 @@ export async function updateCardRank(
   if (updates.maxStamps !== undefined) { sets.push('max_stamps = ?'); values.push(updates.maxStamps); }
   if (updates.rewardCouponTemplateId !== undefined) { sets.push('reward_coupon_template_id = ?'); values.push(updates.rewardCouponTemplateId); }
   if (updates.richMenuGroupId !== undefined) { sets.push('rich_menu_group_id = ?'); values.push(updates.richMenuGroupId); }
+  if (updates.imageUrl !== undefined) { sets.push('image_url = ?'); values.push(updates.imageUrl); }
   if (sets.length === 0) return getCardRankById(db, id);
   sets.push('updated_at = ?');
   values.push(jstNow(), id);
   await db.prepare(`UPDATE card_ranks SET ${sets.join(', ')} WHERE id = ?`).bind(...values).run();
   return getCardRankById(db, id);
+}
+
+// --- card_rank_milestones ---
+
+export async function getCardRankMilestones(db: D1Database, cardRankId: string): Promise<CardRankMilestoneRow[]> {
+  const result = await db
+    .prepare(`SELECT * FROM card_rank_milestones WHERE card_rank_id = ? ORDER BY stamp_threshold ASC`)
+    .bind(cardRankId)
+    .all<CardRankMilestoneRow>();
+  return result.results;
+}
+
+/** LIFF表示用 — 複数ランクのマイルストーンを一括取得する。 */
+export async function getMilestonesForRanks(db: D1Database, cardRankIds: string[]): Promise<CardRankMilestoneRow[]> {
+  if (cardRankIds.length === 0) return [];
+  const placeholders = cardRankIds.map(() => '?').join(',');
+  const result = await db
+    .prepare(`SELECT * FROM card_rank_milestones WHERE card_rank_id IN (${placeholders}) ORDER BY stamp_threshold ASC`)
+    .bind(...cardRankIds)
+    .all<CardRankMilestoneRow>();
+  return result.results;
+}
+
+export async function createCardRankMilestone(
+  db: D1Database,
+  input: { cardRankId: string; stampThreshold: number; couponTemplateId: string },
+): Promise<CardRankMilestoneRow> {
+  const id = crypto.randomUUID();
+  const now = jstNow();
+  await db
+    .prepare(
+      `INSERT INTO card_rank_milestones (id, card_rank_id, stamp_threshold, coupon_template_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(id, input.cardRankId, input.stampThreshold, input.couponTemplateId, now, now)
+    .run();
+  return (await db.prepare(`SELECT * FROM card_rank_milestones WHERE id = ?`).bind(id).first<CardRankMilestoneRow>())!;
+}
+
+export async function deleteCardRankMilestone(db: D1Database, id: string): Promise<void> {
+  await db.prepare(`DELETE FROM card_rank_milestones WHERE id = ?`).bind(id).run();
+}
+
+export async function hasMilestoneBeenIssued(db: D1Database, userCardId: string, milestoneId: string): Promise<boolean> {
+  const row = await db
+    .prepare(`SELECT 1 FROM user_card_milestone_coupons WHERE user_card_id = ? AND milestone_id = ?`)
+    .bind(userCardId, milestoneId)
+    .first();
+  return !!row;
+}
+
+/** このユーザーカードが既に獲得済みのマイルストーンID一覧 (LIFF表示の「獲得済み」判定用)。 */
+export async function getIssuedMilestoneIds(db: D1Database, userCardId: string): Promise<Set<string>> {
+  const result = await db
+    .prepare(`SELECT milestone_id FROM user_card_milestone_coupons WHERE user_card_id = ?`)
+    .bind(userCardId)
+    .all<{ milestone_id: string }>();
+  return new Set(result.results.map((r) => r.milestone_id));
+}
+
+export async function recordMilestoneIssued(
+  db: D1Database,
+  params: { userCardId: string; milestoneId: string; issuedCouponId: string | null },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO user_card_milestone_coupons (id, user_card_id, milestone_id, issued_coupon_id, created_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (user_card_id, milestone_id) DO NOTHING`,
+    )
+    .bind(crypto.randomUUID(), params.userCardId, params.milestoneId, params.issuedCouponId, jstNow())
+    .run();
 }
 
 /** ランク削除。rank_orderは詰めない (欠番があっても getNextCardRank は次の rank_order+1 を素直に探すだけなので問題ない)。 */
@@ -412,12 +499,17 @@ export interface GrantStampResult {
   finalPoints: number;
   rankedUp: boolean;
   issuedCoupon: { templateId: string } | null;
+  /** 今回の付与で新たに到達したマイルストーン (未獲得のもののみ)。caller が issueCoupon + recordMilestoneIssued を行うこと。 */
+  milestonesCrossed: Array<{ milestoneId: string; couponTemplateId: string }>;
 }
 
 /**
  * スタンプ付与。倍率を解決して final_points を計算し、stamp_logs に証跡を残し、
  * ランク到達時は次ランクへ進める (rank_enabled=0なら flat_goal_stamps を上限としてカウントのみ進める)。
- * 呼び出し側 (route/cron) は issuedCoupon が立った場合に coupons.ts の issueCoupon でクーポン発行し、
+ * final_points は四捨五入せず0.5刻みに丸める — 雨の日1.5倍等の倍率を「半分のスタンプ」として
+ * 反映するため (SQLiteのINTEGER列は非整数のREALも値を保ったまま格納できるので列定義変更は不要)。
+ * 呼び出し側 (route/cron) は issuedCoupon / milestonesCrossed が立った場合に coupons.ts の
+ * issueCoupon (+ milestonesCrossed側は recordMilestoneIssued) でクーポン発行し、
  * card_ranks.rich_menu_group_id があればリッチメニュー切替APIを呼ぶこと (本関数はDB更新のみ)。
  */
 export async function grantStamp(
@@ -444,7 +536,7 @@ export async function grantStamp(
 
   const rules = await getPointMultiplierRules(db, params.lineAccountId);
   const { multiplier, ruleId } = resolveActiveMultiplier(rules, now);
-  const finalPoints = Math.round(basePoints * multiplier);
+  const finalPoints = Math.round(basePoints * multiplier * 2) / 2; // 0.5刻みに丸める
 
   await db
     .prepare(
@@ -457,7 +549,23 @@ export async function grantStamp(
     )
     .run();
 
-  let newStampCount = card.stamp_count + finalPoints;
+  // マイルストーン判定は「ランクアップによる繰り越し」より前の、ランク内の生の到達値で行う。
+  const rawNewCount = card.stamp_count + finalPoints;
+  const milestonesCrossed: Array<{ milestoneId: string; couponTemplateId: string }> = [];
+  if (settings?.rank_enabled && card.current_rank_id) {
+    const milestones = await getCardRankMilestones(db, card.current_rank_id);
+    if (milestones.length > 0) {
+      const alreadyIssued = await getIssuedMilestoneIds(db, card.id);
+      for (const m of milestones) {
+        if (alreadyIssued.has(m.id)) continue;
+        if (card.stamp_count < m.stamp_threshold && rawNewCount >= m.stamp_threshold) {
+          milestonesCrossed.push({ milestoneId: m.id, couponTemplateId: m.coupon_template_id });
+        }
+      }
+    }
+  }
+
+  let newStampCount = rawNewCount;
   let newRankId = card.current_rank_id;
   let rankedUp = false;
   let issuedCoupon: { templateId: string } | null = null;
@@ -495,7 +603,7 @@ export async function grantStamp(
     .bind(newStampCount, finalPoints, newRankId, nowIso, expiresAt, jstNow(), card.id)
     .run();
 
-  return { card: (await getUserCardById(db, card.id))!, finalPoints, rankedUp, issuedCoupon };
+  return { card: (await getUserCardById(db, card.id))!, finalPoints, rankedUp, issuedCoupon, milestonesCrossed };
 }
 
 /**

@@ -22,6 +22,7 @@ cardRanks.post('/api/card-ranks', async (c) => {
     maxStamps: number;
     rewardCouponTemplateId?: string | null;
     richMenuGroupId?: string | null;
+    imageUrl?: string | null;
   }>();
   if (!body.accountId || !body.name || !body.maxStamps) {
     return c.json({ success: false, error: 'accountId, name, maxStamps required' }, 400);
@@ -32,6 +33,7 @@ cardRanks.post('/api/card-ranks', async (c) => {
     maxStamps: body.maxStamps,
     rewardCouponTemplateId: body.rewardCouponTemplateId,
     richMenuGroupId: body.richMenuGroupId,
+    imageUrl: body.imageUrl,
   });
   return c.json({ success: true, data: rank }, 201);
 });
@@ -43,6 +45,7 @@ cardRanks.patch('/api/card-ranks/:id', async (c) => {
     maxStamps?: number;
     rewardCouponTemplateId?: string | null;
     richMenuGroupId?: string | null;
+    imageUrl?: string | null;
   }>();
   const rank = await updateCardRank(c.env.DB, c.req.param('id'), body);
   if (!rank) return c.json({ success: false, error: 'not_found' }, 404);

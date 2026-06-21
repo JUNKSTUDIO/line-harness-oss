@@ -33,6 +33,7 @@ couponTemplates.post('/api/coupon-templates', async (c) => {
     validityType: CouponTemplateRow['validity_type'];
     validityDays?: number | null;
     absoluteExpiresAt?: string | null;
+    imageUrl?: string | null;
   }>();
   if (!body.accountId || !body.name || !body.validityType) {
     return c.json({ success: false, error: 'accountId, name, validityType required' }, 400);
@@ -44,6 +45,7 @@ couponTemplates.post('/api/coupon-templates', async (c) => {
     validityType: body.validityType,
     validityDays: body.validityDays,
     absoluteExpiresAt: body.absoluteExpiresAt,
+    imageUrl: body.imageUrl,
   });
   return c.json({ success: true, data: template }, 201);
 });

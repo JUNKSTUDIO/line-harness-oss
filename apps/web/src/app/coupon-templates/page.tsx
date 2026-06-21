@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Header from '@/components/layout/header'
+import ImageUploader from '@/components/shared/image-uploader'
 import { api, type CouponTemplate } from '@/lib/api'
 import { useAccount } from '@/contexts/account-context'
 
@@ -11,6 +12,7 @@ const EMPTY_FORM = {
   validityType: 'relative_days' as CouponTemplate['validity_type'],
   validityDays: 30,
   absoluteExpiresAt: '',
+  imageUrl: null as string | null,
 }
 
 type EditForm = typeof EMPTY_FORM
@@ -48,6 +50,7 @@ export default function CouponTemplatesPage() {
         validityType: form.validityType,
         validityDays: form.validityType === 'relative_days' ? form.validityDays : undefined,
         absoluteExpiresAt: form.validityType === 'absolute_date' ? form.absoluteExpiresAt : undefined,
+        imageUrl: form.imageUrl,
       })
       if (res.success) {
         setForm(EMPTY_FORM)
@@ -68,6 +71,7 @@ export default function CouponTemplatesPage() {
       validityType: t.validity_type,
       validityDays: t.validity_days ?? 30,
       absoluteExpiresAt: t.absolute_expires_at ?? '',
+      imageUrl: t.image_url,
     })
   }
 
@@ -82,6 +86,7 @@ export default function CouponTemplatesPage() {
         validityType: editForm.validityType,
         validityDays: editForm.validityType === 'relative_days' ? editForm.validityDays : null,
         absoluteExpiresAt: editForm.validityType === 'absolute_date' ? editForm.absoluteExpiresAt : null,
+        imageUrl: editForm.imageUrl,
       })
       if (res.success) {
         setTemplates((ts) => ts.map((t) => (t.id === editingId ? res.data : t)))
@@ -163,6 +168,12 @@ export default function CouponTemplatesPage() {
                       </div>
                     )}
                   </div>
+                  <ImageUploader
+                    mode="url"
+                    value={editForm.imageUrl ? { mode: 'url', url: editForm.imageUrl } : null}
+                    onChange={(v) => setEditForm({ ...editForm, imageUrl: v?.mode === 'url' ? v.url : null })}
+                    label="クーポン画像"
+                  />
                   <div className="flex gap-3">
                     <button onClick={saveEdit} disabled={busy} className="text-xs rounded-md bg-emerald-600 px-3 py-1.5 text-white">保存</button>
                     <button onClick={() => setEditingId(null)} className="text-xs text-gray-500 underline">キャンセル</button>
@@ -170,6 +181,10 @@ export default function CouponTemplatesPage() {
                 </div>
               ) : (
                 <div className="flex items-center gap-4">
+                  {t.image_url && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={t.image_url} alt="" className="w-14 h-14 rounded-lg object-cover shrink-0" />
+                  )}
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-sm text-gray-900">
                       {t.name}
@@ -219,6 +234,12 @@ export default function CouponTemplatesPage() {
               </div>
             )}
           </div>
+          <ImageUploader
+            mode="url"
+            value={form.imageUrl ? { mode: 'url', url: form.imageUrl } : null}
+            onChange={(v) => setForm({ ...form, imageUrl: v?.mode === 'url' ? v.url : null })}
+            label="クーポン画像（任意）"
+          />
           <button onClick={add} disabled={busy || !form.name} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
             追加
           </button>

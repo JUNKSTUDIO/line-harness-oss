@@ -32,6 +32,8 @@ cardSettings.get('/api/card-settings', async (c) => {
       shop_longitude: null,
       shop_address: null,
       weather_check_interval_minutes: 30,
+      weather_check_anchor_time: '00:00',
+      rank_badge_layout: 'split',
     },
   });
 });

@@ -14,6 +14,9 @@ import {
   getUserCardById,
   getUserCouponById,
   getLineAccountById,
+  getCardRankMilestones,
+  getIssuedMilestoneIds,
+  getCouponTemplateById,
 } from '@line-crm/db';
 import { verifyCallerLineUserId } from '../services/liff-auth.js';
 import { sendExtensionConfirmed, sendExtensionAlreadyUsed } from '../services/card-coupon-notifier.js';
@@ -68,6 +71,27 @@ cardCoupon.get('/api/liff/cards/me', async (c) => {
     card.expires_at != null &&
     new Date(card.expires_at).getTime() - Date.now() <= reminderDaysBefore * 24 * 3600_000;
 
+  // ランク内マイルストーン (例: 10個中5個でクーポン) — スタンプ画面にタップ可能な印を出すための情報。
+  let milestones: Array<{ threshold: number; couponName: string; couponDescription: string | null; couponImageUrl: string | null; alreadyIssued: boolean }> = [];
+  if (currentRank) {
+    const rankMilestones = await getCardRankMilestones(c.env.DB, currentRank.id);
+    if (rankMilestones.length > 0) {
+      const issuedIds = await getIssuedMilestoneIds(c.env.DB, card.id);
+      milestones = await Promise.all(
+        rankMilestones.map(async (m) => {
+          const template = await getCouponTemplateById(c.env.DB, m.coupon_template_id);
+          return {
+            threshold: m.stamp_threshold,
+            couponName: template?.name ?? '(不明なクーポン)',
+            couponDescription: template?.description ?? null,
+            couponImageUrl: template?.image_url ?? null,
+            alreadyIssued: issuedIds.has(m.id),
+          };
+        }),
+      );
+    }
+  }
+
   return c.json({
     card: {
       id: card.id,
@@ -77,14 +101,17 @@ cardCoupon.get('/api/liff/cards/me', async (c) => {
       remainingToGoal: goal != null ? Math.max(0, goal - card.stamp_count) : null,
       rankEnabled: !!settings?.rank_enabled,
       currentRankName: currentRank?.name ?? null,
+      currentRankImageUrl: currentRank?.image_url ?? null,
       nextRankName: nextRank?.name ?? null,
       expiresAt: card.expires_at,
       expirationExtended: !!card.expiration_extended,
       canExtend,
       status: card.status,
+      milestones,
     },
     reservationUrl: settings?.reservation_url ?? null,
     stampImageUrl: settings?.stamp_image_url ?? null,
+    rankBadgeLayout: settings?.rank_badge_layout ?? 'split',
   });
 });
 
@@ -106,6 +133,9 @@ cardCoupon.get('/api/liff/coupons/me', async (c) => {
   return c.json({
     items: coupons.map((coupon) => ({
       id: coupon.id,
+      name: coupon.display_name,
+      description: coupon.display_description,
+      imageUrl: coupon.display_image_url,
       status: coupon.status,
       expiresAt: coupon.expires_at,
       expirationExtended: !!coupon.expiration_extended,

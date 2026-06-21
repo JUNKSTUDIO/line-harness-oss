@@ -146,6 +146,7 @@ export interface CardSettings {
   weather_check_interval_minutes: number
   weather_check_anchor_time: string
   weather_last_checked_at?: string | null
+  rank_badge_layout: 'split' | 'background'
   created_at?: string
   updated_at?: string
 }
@@ -167,6 +168,16 @@ export interface CardRank {
   max_stamps: number
   reward_coupon_template_id: string | null
   rich_menu_group_id: string | null
+  image_url: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CardRankMilestone {
+  id: string
+  card_rank_id: string
+  stamp_threshold: number
+  coupon_template_id: string
   created_at: string
   updated_at: string
 }
@@ -199,6 +210,7 @@ export interface CouponTemplate {
   absolute_expires_at: string | null
   message_template_id: string | null
   is_active: number
+  image_url: string | null
   created_at: string
   updated_at: string
 }
@@ -504,14 +516,23 @@ export const api = {
   cardRanks: {
     list: (accountId: string) =>
       fetchApi<ApiResponse<CardRank[]>>(`/api/card-ranks?accountId=${accountId}`),
-    create: (body: { accountId: string; name: string; maxStamps: number; rewardCouponTemplateId?: string | null }) =>
+    create: (body: { accountId: string; name: string; maxStamps: number; rewardCouponTemplateId?: string | null; imageUrl?: string | null }) =>
       fetchApi<ApiResponse<CardRank>>('/api/card-ranks', { method: 'POST', body: JSON.stringify(body) }),
-    update: (id: string, body: Partial<{ name: string; maxStamps: number; rewardCouponTemplateId: string | null }>) =>
+    update: (id: string, body: Partial<{ name: string; maxStamps: number; rewardCouponTemplateId: string | null; imageUrl: string | null }>) =>
       fetchApi<ApiResponse<CardRank>>(`/api/card-ranks/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
     delete: (id: string) =>
       fetchApi<ApiResponse<null>>(`/api/card-ranks/${id}`, { method: 'DELETE' }),
     reorder: (accountId: string, orderedIds: string[]) =>
       fetchApi<ApiResponse<CardRank[]>>('/api/card-ranks/reorder', { method: 'POST', body: JSON.stringify({ accountId, orderedIds }) }),
+  },
+
+  cardRankMilestones: {
+    list: (cardRankId: string) =>
+      fetchApi<ApiResponse<CardRankMilestone[]>>(`/api/card-rank-milestones?cardRankId=${cardRankId}`),
+    create: (body: { cardRankId: string; stampThreshold: number; couponTemplateId: string }) =>
+      fetchApi<ApiResponse<CardRankMilestone>>('/api/card-rank-milestones', { method: 'POST', body: JSON.stringify(body) }),
+    delete: (id: string) =>
+      fetchApi<ApiResponse<null>>(`/api/card-rank-milestones/${id}`, { method: 'DELETE' }),
   },
 
   pointMultiplierRules: {
@@ -538,6 +559,7 @@ export const api = {
     create: (body: {
       accountId: string; name: string; description?: string | null
       validityType: CouponTemplate['validity_type']; validityDays?: number | null; absoluteExpiresAt?: string | null
+      imageUrl?: string | null
     }) => fetchApi<ApiResponse<CouponTemplate>>('/api/coupon-templates', { method: 'POST', body: JSON.stringify(body) }),
     update: (id: string, body: Record<string, unknown>) =>
       fetchApi<ApiResponse<CouponTemplate>>(`/api/coupon-templates/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),

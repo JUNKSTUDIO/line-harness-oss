@@ -227,6 +227,16 @@ CREATE TABLE card_grant_operators (
   UNIQUE (line_account_id, line_user_id)
 );
 
+CREATE TABLE card_rank_milestones (
+  id                 TEXT PRIMARY KEY,
+  card_rank_id       TEXT NOT NULL REFERENCES card_ranks(id) ON DELETE CASCADE,
+  stamp_threshold    REAL NOT NULL CHECK (stamp_threshold > 0),
+  coupon_template_id TEXT NOT NULL REFERENCES coupon_templates(id) ON DELETE CASCADE,
+  created_at         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  updated_at         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  UNIQUE (card_rank_id, stamp_threshold)
+);
+
 CREATE TABLE card_ranks (
   id                      TEXT PRIMARY KEY,
   line_account_id         TEXT NOT NULL REFERENCES line_accounts(id) ON DELETE CASCADE,
@@ -236,7 +246,7 @@ CREATE TABLE card_ranks (
   reward_coupon_template_id TEXT REFERENCES coupon_templates(id) ON DELETE SET NULL,
   rich_menu_group_id      TEXT REFERENCES rich_menu_groups(id) ON DELETE SET NULL, -- 到達時に切替えるリッチメニュー
   created_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
-  updated_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  updated_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')), image_url TEXT,
   UNIQUE (line_account_id, rank_order)
 );
 
@@ -252,7 +262,7 @@ CREATE TABLE card_settings (
   reminder_days_before        INTEGER NOT NULL DEFAULT 3,      -- 期限前リマインドのタイミング (残り○日)
   reservation_url             TEXT,                            -- 外部予約システムURL (NULLなら社内LIFF予約に誘導)
   created_at                 TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
-  updated_at                 TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')), stamp_image_url TEXT, shop_latitude REAL, shop_longitude REAL, weather_last_checked_at TEXT, shop_address TEXT, weather_check_interval_minutes INTEGER NOT NULL DEFAULT 30, weather_check_anchor_time TEXT NOT NULL DEFAULT '00:00',
+  updated_at                 TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')), stamp_image_url TEXT, shop_latitude REAL, shop_longitude REAL, weather_last_checked_at TEXT, shop_address TEXT, weather_check_interval_minutes INTEGER NOT NULL DEFAULT 30, weather_check_anchor_time TEXT NOT NULL DEFAULT '00:00', rank_badge_layout TEXT NOT NULL DEFAULT 'split' CHECK (rank_badge_layout IN ('split', 'background')),
   CHECK (stamp_rule_type != 'per_amount' OR amount_per_stamp IS NOT NULL)
 );
 
@@ -296,7 +306,7 @@ CREATE TABLE coupon_templates (
   message_template_id   TEXT REFERENCES message_templates(id) ON DELETE SET NULL,
   is_active             INTEGER NOT NULL DEFAULT 1,
   created_at            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
-  updated_at            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  updated_at            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')), image_url TEXT,
   CHECK (
     (validity_type = 'relative_days' AND validity_days IS NOT NULL) OR
     (validity_type = 'absolute_date' AND absolute_expires_at IS NOT NULL)
@@ -880,6 +890,15 @@ CREATE TABLE update_history (
   rollback_expires_at         INTEGER
 );
 
+CREATE TABLE user_card_milestone_coupons (
+  id                TEXT PRIMARY KEY,
+  user_card_id      TEXT NOT NULL REFERENCES user_cards(id) ON DELETE CASCADE,
+  milestone_id      TEXT NOT NULL REFERENCES card_rank_milestones(id) ON DELETE CASCADE,
+  issued_coupon_id  TEXT REFERENCES user_coupons(id) ON DELETE SET NULL,
+  created_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  UNIQUE (user_card_id, milestone_id)
+);
+
 CREATE TABLE user_cards (
   id                      TEXT PRIMARY KEY,
   friend_id               TEXT NOT NULL REFERENCES friends(id) ON DELETE CASCADE,
@@ -915,7 +934,7 @@ CREATE TABLE user_coupons (
   expiry_reminder_sent_at TEXT,                          -- 期限前リマインド済みマーカー
   created_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
   updated_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
-, coupon_name_at_issuance TEXT);
+, coupon_name_at_issuance TEXT, coupon_description_at_issuance TEXT, coupon_image_url_at_issuance TEXT);
 
 CREATE TABLE users (
   id           TEXT PRIMARY KEY,
@@ -960,6 +979,8 @@ CREATE INDEX idx_calendar_bookings_friend ON calendar_bookings (friend_id);
 CREATE INDEX idx_calendar_bookings_start ON calendar_bookings (start_at);
 
 CREATE INDEX idx_card_grant_operators_account ON card_grant_operators (line_account_id);
+
+CREATE INDEX idx_card_rank_milestones_rank ON card_rank_milestones (card_rank_id, stamp_threshold);
 
 CREATE INDEX idx_card_ranks_account_order ON card_ranks (line_account_id, rank_order);
 
@@ -1090,6 +1111,8 @@ CREATE INDEX idx_stripe_events_type ON stripe_events (event_type);
 CREATE INDEX idx_templates_category ON templates (category);
 
 CREATE INDEX idx_update_history_started ON update_history(started_at DESC);
+
+CREATE INDEX idx_user_card_milestone_coupons_card ON user_card_milestone_coupons (user_card_id);
 
 CREATE INDEX idx_user_cards_friend ON user_cards (friend_id);
 

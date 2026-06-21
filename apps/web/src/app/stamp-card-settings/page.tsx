@@ -23,6 +23,7 @@ const EMPTY: CardSettings = {
   shop_address: null,
   weather_check_interval_minutes: 30,
   weather_check_anchor_time: '00:00',
+  rank_badge_layout: 'split',
 }
 
 export default function StampCardSettingsPage() {
@@ -92,6 +93,7 @@ export default function StampCardSettingsPage() {
         stamp_image_url: form.stamp_image_url,
         weather_check_interval_minutes: form.weather_check_interval_minutes,
         weather_check_anchor_time: form.weather_check_anchor_time,
+        rank_badge_layout: form.rank_badge_layout,
       })
       if (res.success) {
         setForm(res.data)
@@ -185,9 +187,21 @@ export default function StampCardSettingsPage() {
             </Field>
           )}
           {!!form.rank_enabled && (
-            <p className="text-xs text-gray-500">
-              ランクごとのゴール数・報酬クーポンの設定画面は未実装です。現時点ではDB直接操作が必要です。
-            </p>
+            <>
+              <p className="text-xs text-gray-500">
+                各ランクのゴール数・画像・中間報酬の設定は「ランク管理」画面で行います。
+              </p>
+              <Field label="ランクバッジの見せ方">
+                <select
+                  value={form.rank_badge_layout}
+                  onChange={(e) => set('rank_badge_layout', e.target.value as CardSettings['rank_badge_layout'])}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                >
+                  <option value="split">左に画像 + 右にランク名（画像未設定のランクは色だけのバッジ）</option>
+                  <option value="background">画像を背景全体に敷いて、上に文字を重ねる</option>
+                </select>
+              </Field>
+            </>
           )}
         </Section>
 

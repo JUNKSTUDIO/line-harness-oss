@@ -21,6 +21,7 @@ import {
   registerGrantOperator,
   getGrantOperators,
   removeGrantOperator,
+  recordMilestoneIssued,
 } from '@line-crm/db';
 import { signGrantToken, verifyGrantToken, signOperatorRegistrationToken, verifyOperatorRegistrationToken } from '../lib/qr-token.js';
 import { verifyCallerLineUserId, verifyCallerProfile } from '../services/liff-auth.js';
@@ -104,7 +105,7 @@ stampGrant.get('/api/liff/stamp-cards/grant-preview', async (c) => {
       friend: { displayName: friend.display_name, pictureUrl: friend.picture_url },
       card: { stampCount: card.stamp_count, currentRankName: currentRank?.name ?? null },
       stampRuleType: settings?.stamp_rule_type ?? 'per_visit',
-      coupons: coupons.map((cp) => ({ id: cp.id, expiresAt: cp.expires_at })),
+      coupons: coupons.map((cp) => ({ id: cp.id, name: cp.display_name, expiresAt: cp.expires_at })),
     },
   });
 });
@@ -151,7 +152,38 @@ stampGrant.post('/api/liff/stamp-cards/grant', async (c) => {
     await applyRankUpRichMenu(c.env.DB, account, payload.friendId, result.card.current_rank_id);
   }
 
-  return c.json({ success: true, data: { stampCount: result.card.stamp_count, finalPoints: result.finalPoints, rankedUp: result.rankedUp, issuedCoupon: !!result.issuedCoupon } });
+  // ランク内マイルストーン (例: 10個中5個でクーポン) — 今回の付与で新たに到達した分だけ発行する。
+  const milestoneCouponNames: string[] = [];
+  if (result.milestonesCrossed.length > 0 && account && friend) {
+    const { LineClient } = await import('@line-crm/line-sdk');
+    const client = new LineClient(account.channel_access_token);
+    for (const m of result.milestonesCrossed) {
+      const coupon = await issueCoupon(c.env.DB, {
+        friendId: payload.friendId,
+        lineAccountId: payload.accountId,
+        couponTemplateId: m.couponTemplateId,
+        issuedVia: 'rank_clear',
+        sourceUserCardId: result.card.id,
+      });
+      await recordMilestoneIssued(c.env.DB, { userCardId: result.card.id, milestoneId: m.milestoneId, issuedCouponId: coupon.id });
+      milestoneCouponNames.push(coupon.coupon_name_at_issuance ?? 'クーポン');
+      await client.pushTextMessage(
+        friend.line_user_id,
+        `「${coupon.coupon_name_at_issuance ?? 'クーポン'}」を獲得しました！（有効期限: ${new Date(coupon.expires_at).toLocaleDateString('ja-JP')}まで）。`,
+      );
+    }
+  }
+
+  return c.json({
+    success: true,
+    data: {
+      stampCount: result.card.stamp_count,
+      finalPoints: result.finalPoints,
+      rankedUp: result.rankedUp,
+      issuedCoupon: !!result.issuedCoupon,
+      milestoneCouponNames,
+    },
+  });
 });
 
 // POST /api/liff/coupons/:id/redeem — クーポンの消し込み。トークンの有効性 + friendId一致 +

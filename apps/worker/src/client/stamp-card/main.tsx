@@ -17,6 +17,14 @@ export interface StampCardContext {
   idToken: string;
 }
 
+interface MilestoneInfo {
+  threshold: number;
+  couponName: string;
+  couponDescription: string | null;
+  couponImageUrl: string | null;
+  alreadyIssued: boolean;
+}
+
 interface CardView {
   id: string;
   stampCount: number;
@@ -25,21 +33,27 @@ interface CardView {
   remainingToGoal: number | null;
   rankEnabled: boolean;
   currentRankName: string | null;
+  currentRankImageUrl: string | null;
   nextRankName: string | null;
   expiresAt: string | null;
   expirationExtended: boolean;
   canExtend: boolean;
   status: 'active' | 'expired';
+  milestones: MilestoneInfo[];
 }
 
 interface CardResponse {
   card: CardView;
   reservationUrl: string | null;
   stampImageUrl: string | null;
+  rankBadgeLayout: 'split' | 'background';
 }
 
 interface CouponItem {
   id: string;
+  name: string;
+  description: string | null;
+  imageUrl: string | null;
   status: 'unused' | 'used' | 'expired';
   expiresAt: string;
   expirationExtended: boolean;
@@ -104,9 +118,42 @@ function Spinner() {
   );
 }
 
-function RankBadge({ card }: { card: CardView }) {
+function RankBadge({ card, layout }: { card: CardView; layout: 'split' | 'background' }) {
   if (!card.rankEnabled) return null;
   const palette = paletteFor(card.currentRankName);
+  const nextLine = card.nextRankName ? `次のランク: ${card.nextRankName}` : '最高ランクです🎉';
+
+  // 背景全体モード: ランク画像をカード全面に敷き、暗いグラデーションを重ねて文字を読みやすくする。
+  if (layout === 'background' && card.currentRankImageUrl) {
+    return (
+      <div
+        className="sc-card text-center sc-rank-badge-bg"
+        style={{ backgroundImage: `url(${card.currentRankImageUrl})` }}
+      >
+        <div className="sc-rank-badge-bg-overlay">
+          <div className="text-xs text-white/80">現在のランク</div>
+          <div className="text-lg font-bold mt-1 text-white">{card.currentRankName ?? '-'}</div>
+          <div className="text-xs mt-2 text-white/80">{nextLine}</div>
+        </div>
+      </div>
+    );
+  }
+
+  // 左画像+右テキストモード (画像が無い場合もこちらにフォールバック)。
+  if (layout === 'split' && card.currentRankImageUrl) {
+    return (
+      <div className="sc-card sc-rank-badge-split">
+        <img src={card.currentRankImageUrl} alt="" className="sc-rank-badge-image" />
+        <div className="text-left flex-1">
+          <div className="text-xs" style={{ color: palette.label }}>現在のランク</div>
+          <div className="text-lg font-bold mt-1" style={{ color: palette.label }}>{card.currentRankName ?? '-'}</div>
+          <div className="text-xs mt-2" style={{ color: palette.label }}>{nextLine}</div>
+        </div>
+      </div>
+    );
+  }
+
+  // 画像未設定: 従来のグラデーション単色バッジにフォールバック。
   return (
     <div
       className="sc-card text-center"
@@ -116,8 +163,33 @@ function RankBadge({ card }: { card: CardView }) {
       <div className="text-lg font-bold mt-1" style={{ color: palette.label }}>
         {card.currentRankName ?? '-'}
       </div>
-      <div className="text-xs mt-2" style={{ color: palette.label }}>
-        {card.nextRankName ? `次のランク: ${card.nextRankName}` : '最高ランクです🎉'}
+      <div className="text-xs mt-2" style={{ color: palette.label }}>{nextLine}</div>
+    </div>
+  );
+}
+
+function MilestonePopup({ milestone, onClose }: { milestone: MilestoneInfo; onClose: () => void }) {
+  return (
+    <div className="sc-modal-overlay" onClick={onClose}>
+      <div className="sc-modal-card" onClick={(e) => e.stopPropagation()}>
+        {milestone.couponImageUrl && (
+          <img src={milestone.couponImageUrl} alt="" className="sc-modal-image" />
+        )}
+        <div className="p-4">
+          <div className="text-xs text-gray-500">{milestone.threshold}個達成でもらえる特典</div>
+          <div className="text-base font-bold text-gray-900 mt-1">{milestone.couponName}</div>
+          {milestone.couponDescription && (
+            <p className="text-xs text-gray-600 mt-2 whitespace-pre-wrap">{milestone.couponDescription}</p>
+          )}
+          <div className="mt-3">
+            {milestone.alreadyIssued ? (
+              <span className="sc-badge" style={{ background: '#ecfdf5', color: '#047857' }}>獲得済み🎁</span>
+            ) : (
+              <span className="sc-badge">あと{milestone.threshold}個達成で獲得できます</span>
+            )}
+          </div>
+          <button onClick={onClose} className="sc-secondary-btn mt-4">閉じる</button>
+        </div>
       </div>
     </div>
   );
@@ -125,8 +197,19 @@ function RankBadge({ card }: { card: CardView }) {
 
 // 紙のショップカードを模した「マス目にスタンプがポンと押される」見た目。
 // goal が無い (フリー集計) 店舗ではマス目を描けないので数字表示にフォールバックする。
+// 0.5刻みの半分スタンプ (雨の日1.5倍等) は、該当マスの左半分だけ画像/印を見せて表現する。
+// マイルストーン (ランク内の中間到達報酬) が設定されたマスには🎁印を重ね、タップで詳細を表示する。
 function StampGrid({ card, stampImageUrl }: { card: CardView; stampImageUrl: string | null }) {
   const goal = card.goal;
+  const [activeMilestone, setActiveMilestone] = useState<MilestoneInfo | null>(null);
+  const fullCount = Math.floor(card.stampCount);
+  const hasHalf = card.stampCount - fullCount >= 0.5 - 1e-9 && card.stampCount - fullCount < 1 - 1e-9;
+
+  const milestoneBySlot = new Map<number, MilestoneInfo>();
+  for (const m of card.milestones) {
+    const slotIndex = Math.ceil(m.threshold) - 1; // しきい値が小数でも、到達するマス (切り上げ) に印を置く
+    milestoneBySlot.set(slotIndex, m);
+  }
 
   return (
     <div className="sc-card mt-3">
@@ -141,18 +224,29 @@ function StampGrid({ card, stampImageUrl }: { card: CardView; stampImageUrl: str
       {goal != null ? (
         <div className="sc-stamp-grid mt-3">
           {Array.from({ length: goal }, (_, i) => {
-            const filled = i < card.stampCount;
+            const filled = i < fullCount;
+            const half = !filled && i === fullCount && hasHalf;
+            const milestone = milestoneBySlot.get(i);
             return (
               <div
                 key={i}
-                className={`sc-stamp-slot ${filled ? 'sc-stamp-slot-filled' : ''}`}
-                style={filled ? { animationDelay: `${i * 60}ms` } : undefined}
+                className={`sc-stamp-slot ${filled ? 'sc-stamp-slot-filled' : ''} ${half ? 'sc-stamp-slot-half' : ''}`}
+                style={filled || half ? { animationDelay: `${i * 60}ms` } : undefined}
               >
-                {filled && (stampImageUrl ? (
+                {(filled || half) && (stampImageUrl ? (
                   <img src={stampImageUrl} alt="" className="sc-stamp-image" />
                 ) : (
                   <span className="sc-stamp-mark">済</span>
                 ))}
+                {milestone && (
+                  <button
+                    className="sc-milestone-marker"
+                    onClick={() => setActiveMilestone(milestone)}
+                    aria-label="このマスで獲得できる特典を見る"
+                  >
+                    🎁
+                  </button>
+                )}
               </div>
             );
           })}
@@ -166,6 +260,11 @@ function StampGrid({ card, stampImageUrl }: { card: CardView; stampImageUrl: str
           ? `あと${card.remainingToGoal}個でクリア${card.nextRankName ? '（次のランクへ）' : ''}`
           : 'クーポンと交換できます🎁'}
       </div>
+      {card.milestones.length > 0 && (
+        <div className="text-xs text-gray-400 mt-1">🎁印のマスをタップすると、もらえる特典が見られます</div>
+      )}
+
+      {activeMilestone && <MilestonePopup milestone={activeMilestone} onClose={() => setActiveMilestone(null)} />}
     </div>
   );
 }
@@ -200,9 +299,7 @@ function ExtendSection({
 
   return (
     <div className="sc-extend-card mt-3">
-      <div className="text-xs text-orange-700">
-        有効期限: {formatJpDate(card.expiresAt)} まで
-      </div>
+      <div className="text-xs text-orange-700">期限が近づいています</div>
       {error && <div className="text-xs text-red-600 mt-2">{error}</div>}
       <button onClick={extend} disabled={busy} className="sc-secondary-btn mt-2">
         {busy ? '処理中...' : 'どうしても来店できない方はこちら（1回限定で1週間延長）'}
@@ -236,12 +333,17 @@ function CardScreen({ ctx, onShowCoupons, onShowQr }: { ctx: StampCardContext; o
   if (error) return <div className="px-4 py-6"><div className="sc-card text-center text-sm text-gray-600">{error}</div></div>;
   if (!data) return <Spinner />;
 
-  const { card, reservationUrl, stampImageUrl } = data;
+  const { card, reservationUrl, stampImageUrl, rankBadgeLayout } = data;
 
   return (
     <div className="px-4 py-4 pb-10 sc-fade-in">
-      <RankBadge card={card} />
+      <RankBadge card={card} layout={rankBadgeLayout} />
       <StampGrid card={card} stampImageUrl={stampImageUrl} />
+      {card.expiresAt && (
+        <div className="text-xs text-gray-500 mt-2 text-right">
+          カードの有効期限: {formatJpDate(card.expiresAt)} まで
+        </div>
+      )}
       {extendedAt ? <ExtendedNotice newExpiresAt={extendedAt} /> : <ExtendSection ctx={ctx} card={card} onExtended={setExtendedAt} />}
       <button onClick={onShowQr} className="sc-primary-btn mt-3">
         スタッフにスタンプを押してもらう
@@ -312,7 +414,7 @@ interface GrantPreview {
   friend: { displayName: string | null; pictureUrl: string | null };
   card: { stampCount: number; currentRankName: string | null };
   stampRuleType: 'per_visit' | 'per_amount';
-  coupons: Array<{ id: string; expiresAt: string }>;
+  coupons: Array<{ id: string; name: string; expiresAt: string }>;
 }
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -431,8 +533,8 @@ function GrantScreen({ ctx, token }: { ctx: StampCardContext; token: string }) {
           <div className="text-xs text-gray-500 mb-2">保有クーポン</div>
           <ul className="space-y-2">
             {preview.coupons.map((cp) => (
-              <li key={cp.id} className="flex items-center justify-between">
-                <span className="text-xs text-gray-600">{formatJpDate(cp.expiresAt)}まで有効</span>
+              <li key={cp.id} className="flex items-center justify-between gap-2">
+                <span className="text-xs text-gray-700 truncate">{cp.name}<span className="text-gray-400">（{formatJpDate(cp.expiresAt)}まで）</span></span>
                 {redeemedIds.has(cp.id) ? (
                   <span className="text-xs text-emerald-700">使用済みにしました✓</span>
                 ) : (
@@ -511,10 +613,23 @@ function CouponListScreen({ ctx, onBack }: { ctx: StampCardContext; onBack: () =
       ) : (
         <ul className="space-y-2 mt-3">
           {items.map((coupon) => (
-            <li key={coupon.id} className="sc-card">
-              <div className="flex items-center justify-between">
-                <span className="sc-badge">{COUPON_STATUS_LABEL[coupon.status]}</span>
-                <span className="text-xs text-gray-500">{formatJpDate(coupon.expiresAt)} まで</span>
+            <li key={coupon.id} className="sc-card !p-0 overflow-hidden">
+              <div className="flex">
+                {coupon.imageUrl ? (
+                  <img src={coupon.imageUrl} alt="" className="w-20 h-20 object-cover shrink-0" />
+                ) : (
+                  <div className="w-20 h-20 bg-gradient-to-br from-green-100 to-green-200 shrink-0 flex items-center justify-center text-2xl">🎟️</div>
+                )}
+                <div className="flex-1 min-w-0 p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="font-semibold text-sm text-gray-900 line-clamp-2">{coupon.name}</div>
+                    <span className="sc-badge shrink-0">{COUPON_STATUS_LABEL[coupon.status]}</span>
+                  </div>
+                  {coupon.description && (
+                    <p className="text-xs text-gray-600 mt-1 line-clamp-2">{coupon.description}</p>
+                  )}
+                  <div className="text-xs text-gray-400 mt-1">{formatJpDate(coupon.expiresAt)} まで</div>
+                </div>
               </div>
             </li>
           ))}

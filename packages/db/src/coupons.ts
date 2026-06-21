@@ -12,6 +12,7 @@ export interface CouponTemplateRow {
   absolute_expires_at: string | null;
   message_template_id: string | null;
   is_active: number;
+  image_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -33,6 +34,8 @@ export interface UserCouponRow {
   last_rescued_at: string | null;
   expiry_reminder_sent_at: string | null;
   coupon_name_at_issuance: string | null;
+  coupon_description_at_issuance: string | null;
+  coupon_image_url_at_issuance: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -49,6 +52,7 @@ export interface CreateCouponTemplateInput {
   validityDays?: number | null;
   absoluteExpiresAt?: string | null;
   messageTemplateId?: string | null;
+  imageUrl?: string | null;
 }
 
 export async function createCouponTemplate(db: D1Database, input: CreateCouponTemplateInput): Promise<CouponTemplateRow> {
@@ -56,12 +60,12 @@ export async function createCouponTemplate(db: D1Database, input: CreateCouponTe
   const now = jstNow();
   await db
     .prepare(
-      `INSERT INTO coupon_templates (id, line_account_id, name, description, validity_type, validity_days, absolute_expires_at, message_template_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO coupon_templates (id, line_account_id, name, description, validity_type, validity_days, absolute_expires_at, message_template_id, image_url, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id, input.lineAccountId, input.name, input.description ?? null, input.validityType,
-      input.validityDays ?? null, input.absoluteExpiresAt ?? null, input.messageTemplateId ?? null, now, now,
+      input.validityDays ?? null, input.absoluteExpiresAt ?? null, input.messageTemplateId ?? null, input.imageUrl ?? null, now, now,
     )
     .run();
   return (await getCouponTemplateById(db, id))!;
@@ -73,11 +77,13 @@ export async function updateCouponTemplate(
   updates: Partial<{
     name: string; description: string | null; validityType: CouponTemplateRow['validity_type'];
     validityDays: number | null; absoluteExpiresAt: string | null; messageTemplateId: string | null; isActive: boolean;
+    imageUrl: string | null;
   }>,
 ): Promise<CouponTemplateRow | null> {
   const colMap: Record<string, string> = {
     name: 'name', description: 'description', validityType: 'validity_type',
     validityDays: 'validity_days', absoluteExpiresAt: 'absolute_expires_at', messageTemplateId: 'message_template_id',
+    imageUrl: 'image_url',
   };
   const sets: string[] = [];
   const values: unknown[] = [];
@@ -142,10 +148,14 @@ export async function issueCoupon(
     .prepare(
       `INSERT INTO user_coupons (
          id, friend_id, coupon_template_id, line_account_id, issued_via, source_user_card_id,
-         issued_at, expires_at, coupon_name_at_issuance, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         issued_at, expires_at, coupon_name_at_issuance, coupon_description_at_issuance, coupon_image_url_at_issuance,
+         created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(id, params.friendId, params.couponTemplateId, params.lineAccountId, params.issuedVia, params.sourceUserCardId ?? null, now, expiresAt, template.name, now, now)
+    .bind(
+      id, params.friendId, params.couponTemplateId, params.lineAccountId, params.issuedVia, params.sourceUserCardId ?? null,
+      now, expiresAt, template.name, template.description, template.image_url, now, now,
+    )
     .run();
 
   return (await getUserCouponById(db, id))!;
@@ -155,16 +165,30 @@ export async function getUserCouponById(db: D1Database, id: string): Promise<Use
   return db.prepare(`SELECT * FROM user_coupons WHERE id = ?`).bind(id).first<UserCouponRow>();
 }
 
+export type UserCouponWithDisplay = UserCouponRow & { display_name: string; display_description: string | null; display_image_url: string | null };
+
+/**
+ * 発行時スナップショット (name/description/image) を優先し、未設定 (旧データ) の場合のみ
+ * 現在のテンプレート内容にフォールバックした表示用フィールドを付与して返す。
+ */
 export async function getUserCoupons(
   db: D1Database,
   friendId: string,
   opts: { status?: UserCouponRow['status'] } = {},
-): Promise<UserCouponRow[]> {
+): Promise<UserCouponWithDisplay[]> {
   const query = opts.status
-    ? `SELECT * FROM user_coupons WHERE friend_id = ? AND status = ? ORDER BY expires_at ASC`
-    : `SELECT * FROM user_coupons WHERE friend_id = ? ORDER BY expires_at ASC`;
+    ? `SELECT uc.*, COALESCE(uc.coupon_name_at_issuance, ct.name) AS display_name,
+              COALESCE(uc.coupon_description_at_issuance, ct.description) AS display_description,
+              COALESCE(uc.coupon_image_url_at_issuance, ct.image_url) AS display_image_url
+         FROM user_coupons uc INNER JOIN coupon_templates ct ON ct.id = uc.coupon_template_id
+        WHERE uc.friend_id = ? AND uc.status = ? ORDER BY uc.expires_at ASC`
+    : `SELECT uc.*, COALESCE(uc.coupon_name_at_issuance, ct.name) AS display_name,
+              COALESCE(uc.coupon_description_at_issuance, ct.description) AS display_description,
+              COALESCE(uc.coupon_image_url_at_issuance, ct.image_url) AS display_image_url
+         FROM user_coupons uc INNER JOIN coupon_templates ct ON ct.id = uc.coupon_template_id
+        WHERE uc.friend_id = ? ORDER BY uc.expires_at ASC`;
   const stmt = opts.status ? db.prepare(query).bind(friendId, opts.status) : db.prepare(query).bind(friendId);
-  const result = await stmt.all<UserCouponRow>();
+  const result = await stmt.all<UserCouponWithDisplay>();
   return result.results;
 }
 

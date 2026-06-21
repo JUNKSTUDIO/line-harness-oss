@@ -995,3 +995,32 @@ CREATE INDEX IF NOT EXISTS idx_user_coupons_friend ON user_coupons (friend_id);
 CREATE INDEX IF NOT EXISTS idx_user_coupons_template ON user_coupons (coupon_template_id);
 -- 期限前リマインド / 期限切れ処理 / 「期限切れクーポン保持者」検索が叩く
 CREATE INDEX IF NOT EXISTS idx_user_coupons_status_expires ON user_coupons (status, expires_at);
+
+-- =============================================================================
+-- Migration 052: card_rank_milestones / user_card_milestone_coupons
+-- (ALTER列追加 — card_ranks.image_url 等 — はschema.sqlに折り込まず、
+-- migrations/052_rank_milestones_and_images.sql のみに記載する既存の慣習に従う)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS card_rank_milestones (
+  id                 TEXT PRIMARY KEY,
+  card_rank_id       TEXT NOT NULL REFERENCES card_ranks(id) ON DELETE CASCADE,
+  stamp_threshold    REAL NOT NULL CHECK (stamp_threshold > 0),
+  coupon_template_id TEXT NOT NULL REFERENCES coupon_templates(id) ON DELETE CASCADE,
+  created_at         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  updated_at         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  UNIQUE (card_rank_id, stamp_threshold)
+);
+
+CREATE INDEX IF NOT EXISTS idx_card_rank_milestones_rank ON card_rank_milestones (card_rank_id, stamp_threshold);
+
+CREATE TABLE IF NOT EXISTS user_card_milestone_coupons (
+  id                TEXT PRIMARY KEY,
+  user_card_id      TEXT NOT NULL REFERENCES user_cards(id) ON DELETE CASCADE,
+  milestone_id      TEXT NOT NULL REFERENCES card_rank_milestones(id) ON DELETE CASCADE,
+  issued_coupon_id  TEXT REFERENCES user_coupons(id) ON DELETE SET NULL,
+  created_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  UNIQUE (user_card_id, milestone_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_card_milestone_coupons_card ON user_card_milestone_coupons (user_card_id);
