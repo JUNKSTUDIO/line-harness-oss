@@ -64,9 +64,10 @@ cardCoupon.get('/api/liff/cards/me', async (c) => {
   const goal = settings?.rank_enabled ? currentRank?.max_stamps ?? null : settings?.flat_goal_stamps ?? null;
   const nextRank = currentRank ? ranks.find((r) => r.rank_order === currentRank.rank_order + 1) ?? null : null;
 
-  // セルフ延長ボタンは「期限が近づいている場合のみ」表示 (要件④/⑤)。
+  // セルフ延長ボタンは「期限が近づいている場合のみ」表示 (要件④/⑤)。管理画面でOFFにできる。
   const reminderDaysBefore = settings?.reminder_days_before ?? 3;
   const canExtend =
+    settings?.card_expiry_self_extension_enabled !== 0 &&
     !card.expiration_extended &&
     card.expires_at != null &&
     new Date(card.expires_at).getTime() - Date.now() <= reminderDaysBefore * 24 * 3600_000;
@@ -159,6 +160,9 @@ cardCoupon.post('/api/liff/cards/:id/extend', async (c) => {
 
   const card = await getUserCardById(c.env.DB, c.req.param('id'));
   if (!card || card.friend_id !== friend.id) return bad(c, 'not_found', 404);
+
+  const settings = await getCardSettings(c.env.DB, accountId);
+  if (settings?.card_expiry_self_extension_enabled === 0) return bad(c, 'self_extension_disabled', 403);
 
   const result = await extendUserCardExpiry(c.env.DB, card.id);
   const account = await getLineAccountById(c.env.DB, accountId);

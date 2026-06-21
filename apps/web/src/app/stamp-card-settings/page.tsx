@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Header from '@/components/layout/header'
 import ImageUploader from '@/components/shared/image-uploader'
-import { api, type CardSettings } from '@/lib/api'
+import { api, type CardSettings, type CardRank } from '@/lib/api'
 import { useAccount } from '@/contexts/account-context'
 
 const EMPTY: CardSettings = {
@@ -16,6 +16,9 @@ const EMPTY: CardSettings = {
   card_expiry_months: null,
   card_expiry_mode: 'since_last_stamp',
   card_expiry_days_from_issue: null,
+  card_expiry_self_extension_enabled: 1,
+  card_expiry_penalty_type: 'none',
+  card_expiry_penalty_target_rank_id: null,
   stamp_angle_enabled: 1,
   default_coupon_validity_days: 30,
   reminder_days_before: 3,
@@ -39,18 +42,23 @@ export default function StampCardSettingsPage() {
   const [addressInput, setAddressInput] = useState('')
   const [geocoding, setGeocoding] = useState(false)
   const [geocodeMessage, setGeocodeMessage] = useState('')
+  const [ranks, setRanks] = useState<CardRank[]>([])
 
   useEffect(() => {
     if (!selectedAccount) return
     setLoading(true)
     setError('')
-    api.cardSettings.get(selectedAccount.id).then((res) => {
-      if (res.success) {
-        setForm(res.data)
-        setAddressInput(res.data.shop_address ?? '')
+    Promise.all([
+      api.cardSettings.get(selectedAccount.id),
+      api.cardRanks.list(selectedAccount.id),
+    ]).then(([settingsRes, ranksRes]) => {
+      if (settingsRes.success) {
+        setForm(settingsRes.data)
+        setAddressInput(settingsRes.data.shop_address ?? '')
       } else {
-        setError(res.error)
+        setError(settingsRes.error)
       }
+      if (ranksRes.success) setRanks(ranksRes.data)
       setLoading(false)
     })
   }, [selectedAccount])
@@ -92,6 +100,9 @@ export default function StampCardSettingsPage() {
         card_expiry_months: form.card_expiry_months,
         card_expiry_mode: form.card_expiry_mode,
         card_expiry_days_from_issue: form.card_expiry_days_from_issue,
+        card_expiry_self_extension_enabled: form.card_expiry_self_extension_enabled,
+        card_expiry_penalty_type: form.card_expiry_penalty_type,
+        card_expiry_penalty_target_rank_id: form.card_expiry_penalty_type === 'drop_to_rank' ? form.card_expiry_penalty_target_rank_id : null,
         stamp_angle_enabled: form.stamp_angle_enabled,
         default_coupon_validity_days: form.default_coupon_validity_days,
         reminder_days_before: form.reminder_days_before,
@@ -282,6 +293,44 @@ export default function StampCardSettingsPage() {
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
             />
           </Field>
+          <Field label="セルフ延長機能（期限間近に「1回限定で1週間延長」をお客様自身に許可する）">
+            <select
+              value={form.card_expiry_self_extension_enabled ? '1' : '0'}
+              onChange={(e) => set('card_expiry_self_extension_enabled', Number(e.target.value))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            >
+              <option value="1">ON（既定）</option>
+              <option value="0">OFF</option>
+            </select>
+          </Field>
+          <Field label="完全に期限切れになった場合の扱い">
+            <select
+              value={form.card_expiry_penalty_type}
+              onChange={(e) => set('card_expiry_penalty_type', e.target.value as CardSettings['card_expiry_penalty_type'])}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            >
+              <option value="none">このまま（スタンプ数・ランクをそのまま維持）</option>
+              <option value="reset_to_start">一番初めから（スタンプ0・最初のランクに戻す）</option>
+              <option value="drop_one_level">ランクを1段だけ下げる（スタンプは0に戻す）</option>
+              {!!form.rank_enabled && <option value="drop_to_rank">指定したランクまで下げる（スタンプは0に戻す）</option>}
+              <option value="reissue">カードを再発行扱いにする（発行日もリセットし、新規カードと同様に扱う）</option>
+            </select>
+            <p className="text-xs text-gray-400 mt-1">
+              いずれの場合も、ペナルティは「次回来店してスタッフがスタンプを押した瞬間」に適用されます（来店していない間に遡って変わることはありません）。
+            </p>
+          </Field>
+          {form.card_expiry_penalty_type === 'drop_to_rank' && (
+            <Field label="下げ先のランク">
+              <select
+                value={form.card_expiry_penalty_target_rank_id ?? ''}
+                onChange={(e) => set('card_expiry_penalty_target_rank_id', e.target.value || null)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              >
+                <option value="">選択してください</option>
+                {ranks.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </Field>
+          )}
         </Section>
 
         <Section title="予約導線">

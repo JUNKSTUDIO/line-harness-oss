@@ -1,4 +1,4 @@
-import { jstNow } from './utils.js';
+import { jstNow, toJstString } from './utils.js';
 
 // ランクアップ式スタンプカード — クエリヘルパー
 
@@ -12,6 +12,9 @@ export interface CardSettingsRow {
   card_expiry_months: number | null;
   card_expiry_mode: 'since_last_stamp' | 'since_issue';
   card_expiry_days_from_issue: number | null;
+  card_expiry_self_extension_enabled: number;
+  card_expiry_penalty_type: 'none' | 'reset_to_start' | 'drop_to_rank' | 'drop_one_level' | 'reissue';
+  card_expiry_penalty_target_rank_id: string | null;
   stamp_angle_enabled: number;
   default_coupon_validity_days: number;
   reminder_days_before: number;
@@ -104,11 +107,12 @@ export async function upsertCardSettings(
         `INSERT INTO card_settings (
            line_account_id, stamp_rule_type, amount_per_stamp, signup_bonus_stamps,
            rank_enabled, flat_goal_stamps, card_expiry_months, card_expiry_mode, card_expiry_days_from_issue,
+           card_expiry_self_extension_enabled, card_expiry_penalty_type, card_expiry_penalty_target_rank_id,
            stamp_angle_enabled, default_coupon_validity_days,
            reminder_days_before, reservation_url, stamp_image_url, shop_latitude, shop_longitude,
            shop_address, weather_check_interval_minutes, weather_check_anchor_time, rank_badge_layout,
            created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         lineAccountId,
@@ -120,6 +124,9 @@ export async function upsertCardSettings(
         input.card_expiry_months ?? null,
         input.card_expiry_mode ?? 'since_last_stamp',
         input.card_expiry_days_from_issue ?? null,
+        input.card_expiry_self_extension_enabled ?? 1,
+        input.card_expiry_penalty_type ?? 'none',
+        input.card_expiry_penalty_target_rank_id ?? null,
         input.stamp_angle_enabled ?? 1,
         input.default_coupon_validity_days ?? 30,
         input.reminder_days_before ?? 3,
@@ -559,6 +566,51 @@ export interface GrantStampResult {
   milestonesCrossed: Array<{ milestoneId: string; couponTemplateId: string }>;
 }
 
+interface ExpiryPenaltyBaseline {
+  stampCount: number;
+  rankId: string | null;
+  createdAt: string;
+  resetExtension: boolean;
+}
+
+/**
+ * 完全に期限切れになったカードへ「久々の付与 (= 復活のタイミング)」が来た際、
+ * card_settings.card_expiry_penalty_type に応じて付与前の起点を補正する。
+ * 'none' および未期限切れの場合はカードの現状をそのまま起点にする (= 現行のペナルティ無し挙動)。
+ */
+async function resolveExpiryPenaltyBaseline(
+  db: D1Database,
+  card: UserCardRow,
+  settings: CardSettingsRow | null,
+  now: Date,
+): Promise<ExpiryPenaltyBaseline> {
+  const asIs = { stampCount: card.stamp_count, rankId: card.current_rank_id, createdAt: card.created_at, resetExtension: false };
+  if (card.status !== 'expired') return asIs;
+
+  const penaltyType = settings?.card_expiry_penalty_type ?? 'none';
+  if (penaltyType === 'none') return asIs;
+
+  const ranks = settings?.rank_enabled ? await getCardRanks(db, card.line_account_id) : [];
+  const firstRank = ranks[0] ?? null;
+
+  switch (penaltyType) {
+    case 'reset_to_start':
+      return { stampCount: 0, rankId: firstRank?.id ?? card.current_rank_id, createdAt: card.created_at, resetExtension: false };
+    case 'reissue':
+      // カードそのものを「再発行」扱いにする — 発行日もリセットするため since_issue モードの期限も新規カード同様に再スタートする。
+      return { stampCount: 0, rankId: firstRank?.id ?? card.current_rank_id, createdAt: toJstString(now), resetExtension: true };
+    case 'drop_to_rank':
+      return { stampCount: 0, rankId: settings?.card_expiry_penalty_target_rank_id ?? card.current_rank_id, createdAt: card.created_at, resetExtension: false };
+    case 'drop_one_level': {
+      const currentRank = ranks.find((r) => r.id === card.current_rank_id);
+      const lowerRank = currentRank ? [...ranks].reverse().find((r) => r.rank_order < currentRank.rank_order) : null;
+      return { stampCount: 0, rankId: lowerRank?.id ?? card.current_rank_id, createdAt: card.created_at, resetExtension: false };
+    }
+    default:
+      return asIs;
+  }
+}
+
 /**
  * スタンプ付与。倍率を解決して final_points を計算し、stamp_logs に証跡を残し、
  * ランク到達時は次ランクへ進める (rank_enabled=0なら flat_goal_stamps を上限としてカウントのみ進める)。
@@ -585,6 +637,9 @@ export async function grantStamp(
   const settings = await getCardSettings(db, params.lineAccountId);
   const card = await getOrCreateUserCard(db, params.friendId, params.lineAccountId);
 
+  // 完全に期限切れだったカードへの久々の付与 (= 復活のタイミング) なら、設定されたペナルティを起点に反映する。
+  const baseline = await resolveExpiryPenaltyBaseline(db, card, settings, now);
+
   // 基本付与pt: per_visit=1 (manualBasePointsで上書き可), per_amount=floor(amount / amount_per_stamp)
   let basePoints = params.manualBasePoints ?? 1;
   if (params.source === 'amount') {
@@ -608,15 +663,15 @@ export async function grantStamp(
     .run();
 
   // マイルストーン判定は「ランクアップによる繰り越し」より前の、ランク内の生の到達値で行う。
-  const rawNewCount = card.stamp_count + finalPoints;
+  const rawNewCount = baseline.stampCount + finalPoints;
   const milestonesCrossed: Array<{ milestoneId: string; couponTemplateId: string }> = [];
-  if (settings?.rank_enabled && card.current_rank_id) {
-    const milestones = await getCardRankMilestones(db, card.current_rank_id);
+  if (settings?.rank_enabled && baseline.rankId) {
+    const milestones = await getCardRankMilestones(db, baseline.rankId);
     if (milestones.length > 0) {
       const alreadyIssued = await getIssuedMilestoneIds(db, card.id);
       for (const m of milestones) {
         if (alreadyIssued.has(m.id)) continue;
-        if (card.stamp_count < m.stamp_threshold && rawNewCount >= m.stamp_threshold) {
+        if (baseline.stampCount < m.stamp_threshold && rawNewCount >= m.stamp_threshold) {
           milestonesCrossed.push({ milestoneId: m.id, couponTemplateId: m.coupon_template_id });
         }
       }
@@ -624,7 +679,7 @@ export async function grantStamp(
   }
 
   let newStampCount = rawNewCount;
-  let newRankId = card.current_rank_id;
+  let newRankId = baseline.rankId;
   let rankedUp = false;
   let issuedCoupon: { templateId: string } | null = null;
 
@@ -648,17 +703,18 @@ export async function grantStamp(
   }
 
   const nowIso = now.toISOString();
-  const expiresAt = computeCardExpiresAt(settings, card.created_at, nowIso);
+  const expiresAt = computeCardExpiresAt(settings, baseline.createdAt, nowIso);
 
   await db
     .prepare(
       `UPDATE user_cards
          SET stamp_count = ?, total_stamp_count = total_stamp_count + ?, current_rank_id = ?,
-             last_stamped_at = ?, expires_at = ?, status = 'active',
+             last_stamped_at = ?, expires_at = ?, status = 'active', created_at = ?,
+             expiration_extended = CASE WHEN ? THEN 0 ELSE expiration_extended END,
              expiry_reminder_sent_at = NULL, updated_at = ?
        WHERE id = ?`,
     )
-    .bind(newStampCount, finalPoints, newRankId, nowIso, expiresAt, jstNow(), card.id)
+    .bind(newStampCount, finalPoints, newRankId, nowIso, expiresAt, baseline.createdAt, baseline.resetExtension ? 1 : 0, jstNow(), card.id)
     .run();
 
   return { card: (await getUserCardById(db, card.id))!, finalPoints, rankedUp, issuedCoupon, milestonesCrossed };

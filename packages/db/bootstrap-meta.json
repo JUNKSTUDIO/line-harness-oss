@@ -58,7 +58,8 @@
     "050_user_coupons_name_snapshot.sql",
     "051_card_settings_weather_anchor.sql",
     "052_rank_milestones_and_images.sql",
-    "053_expiry_mode_angle_and_schedule.sql"
+    "053_expiry_mode_angle_and_schedule.sql",
+    "054_expiry_extension_and_penalty.sql"
   ],
-  "migrationCount": 59
+  "migrationCount": 60
 }
