@@ -7,6 +7,7 @@ import {
   updatePointMultiplierRule,
   deletePointMultiplierRule,
   setMultiplierRuleActive,
+  reorderPointMultiplierRules,
   type PointMultiplierRuleRow,
 } from '@line-crm/db';
 import type { Env } from '../index.js';
@@ -76,6 +77,17 @@ pointMultiplierRules.post('/api/point-multiplier-rules/:id/toggle', async (c) =>
 pointMultiplierRules.delete('/api/point-multiplier-rules/:id', async (c) => {
   await deletePointMultiplierRule(c.env.DB, c.req.param('id'));
   return c.json({ success: true, data: null });
+});
+
+// POST /api/point-multiplier-rules/reorder — { accountId, orderedIds: string[] } (先頭が最優先)
+pointMultiplierRules.post('/api/point-multiplier-rules/reorder', async (c) => {
+  const body = await c.req.json<{ accountId: string; orderedIds: string[] }>();
+  if (!body.accountId || !Array.isArray(body.orderedIds)) {
+    return c.json({ success: false, error: 'accountId, orderedIds required' }, 400);
+  }
+  await reorderPointMultiplierRules(c.env.DB, body.accountId, body.orderedIds);
+  const rules = await getPointMultiplierRules(c.env.DB, body.accountId);
+  return c.json({ success: true, data: rules });
 });
 
 export { pointMultiplierRules };

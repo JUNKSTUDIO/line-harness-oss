@@ -345,8 +345,9 @@ export async function deleteCardRank(db: D1Database, id: string): Promise<void> 
 // --- point_multiplier_rules ---
 
 export async function getPointMultiplierRules(db: D1Database, lineAccountId: string): Promise<PointMultiplierRuleRow[]> {
+  // priorityが同値の場合の並びを安定させるため作成日時を第二キーにする (UI上の並び替えで priority を明示指定すれば一意になる)。
   const result = await db
-    .prepare(`SELECT * FROM point_multiplier_rules WHERE line_account_id = ? ORDER BY priority DESC`)
+    .prepare(`SELECT * FROM point_multiplier_rules WHERE line_account_id = ? ORDER BY priority DESC, created_at ASC`)
     .bind(lineAccountId)
     .all<PointMultiplierRuleRow>();
   return result.results;
@@ -422,6 +423,16 @@ export async function updatePointMultiplierRule(
 
 export async function deletePointMultiplierRule(db: D1Database, id: string): Promise<void> {
   await db.prepare(`DELETE FROM point_multiplier_rules WHERE id = ?`).bind(id).run();
+}
+
+/** 管理画面の並び替えUI用 — orderedIds の先頭が最優先になるよう priority を振り直す。 */
+export async function reorderPointMultiplierRules(db: D1Database, lineAccountId: string, orderedIds: string[]): Promise<void> {
+  const total = orderedIds.length;
+  const statements = orderedIds.map((id, index) =>
+    db.prepare(`UPDATE point_multiplier_rules SET priority = ?, updated_at = ? WHERE id = ? AND line_account_id = ?`)
+      .bind(total - index, jstNow(), id, lineAccountId),
+  );
+  await db.batch(statements);
 }
 
 export async function setMultiplierRuleActive(db: D1Database, id: string, isActive: boolean): Promise<void> {

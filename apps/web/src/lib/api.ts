@@ -575,6 +575,8 @@ export const api = {
       fetchApi<ApiResponse<null>>(`/api/point-multiplier-rules/${id}/toggle`, { method: 'POST', body: JSON.stringify({ isActive }) }),
     delete: (id: string) =>
       fetchApi<ApiResponse<null>>(`/api/point-multiplier-rules/${id}`, { method: 'DELETE' }),
+    reorder: (accountId: string, orderedIds: string[]) =>
+      fetchApi<ApiResponse<PointMultiplierRule[]>>('/api/point-multiplier-rules/reorder', { method: 'POST', body: JSON.stringify({ accountId, orderedIds }) }),
   },
 
   couponTemplates: {

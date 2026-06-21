@@ -214,6 +214,18 @@ export default function PointMultiplierRulesPage() {
     setRules((rs) => rs.filter((r) => r.id !== id))
   }
 
+  async function move(index: number, direction: -1 | 1) {
+    if (!selectedAccount) return
+    const target = index + direction
+    if (target < 0 || target >= rules.length) return
+    const reordered = [...rules]
+    ;[reordered[index], reordered[target]] = [reordered[target], reordered[index]]
+    setRules(reordered) // 楽観的更新
+    const res = await api.pointMultiplierRules.reorder(selectedAccount.id, reordered.map((r) => r.id))
+    if (res.success) setRules(res.data)
+    else await load() // 失敗時は読み直して整合性を保つ
+  }
+
   async function add() {
     if (!selectedAccount || !form.name) return
     setBusy(true)
@@ -283,7 +295,10 @@ export default function PointMultiplierRulesPage() {
           {rules.length === 0 && (
             <div className="bg-white border border-gray-200 rounded-xl p-6 text-center text-sm text-gray-400">まだルールがありません</div>
           )}
-          {rules.map((rule) => (
+          {rules.length > 1 && (
+            <p className="text-xs text-gray-400">「優先度が最も高い1件のみ適用する」を選んだ場合、↑↓で動かした一番上のルールが最優先になります。</p>
+          )}
+          {rules.map((rule, index) => (
             <div key={rule.id} className="bg-white border border-gray-200 rounded-xl p-4">
               {editingId === rule.id ? (
                 <div className="space-y-3">
@@ -295,6 +310,10 @@ export default function PointMultiplierRulesPage() {
                 </div>
               ) : (
                 <div className="flex items-center gap-4">
+                  <div className="flex flex-col items-center gap-1 text-gray-400 shrink-0">
+                    <button onClick={() => move(index, -1)} disabled={index === 0} className="disabled:opacity-30" aria-label="上へ">▲</button>
+                    <button onClick={() => move(index, 1)} disabled={index === rules.length - 1} className="disabled:opacity-30" aria-label="下へ">▼</button>
+                  </div>
                   <button
                     onClick={() => toggle(rule)}
                     className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${rule.is_active ? 'bg-emerald-500' : 'bg-gray-300'}`}
