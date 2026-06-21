@@ -49,6 +49,9 @@ export async function processCardCouponExpiryReminders(
           expiresAtJst: toJstDateOnly(card.expires_at!),
           reservationUrl: card.reservation_url,
           extendLiffUrl,
+          reservationButtonLabel: card.reminder_reservation_button_label,
+          reservationHelperText: card.reminder_reservation_helper_text,
+          extendButtonLabel: card.reminder_extend_button_label,
         },
       });
       await markCardReminderSent(db, card.id);
@@ -76,6 +79,9 @@ export async function processCardCouponExpiryReminders(
           expiresAtJst: toJstDateOnly(coupon.expires_at),
           reservationUrl: coupon.reservation_url,
           extendLiffUrl,
+          reservationButtonLabel: coupon.reminder_reservation_button_label,
+          reservationHelperText: coupon.reminder_reservation_helper_text,
+          extendButtonLabel: coupon.reminder_extend_button_label,
         },
       });
       await markCouponReminderSent(db, coupon.id);

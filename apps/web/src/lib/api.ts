@@ -150,6 +150,9 @@ export interface CardSettings {
   birthday_coupon_template_id: string | null
   default_coupon_validity_days: number
   reminder_days_before: number
+  reminder_reservation_button_label: string | null
+  reminder_reservation_helper_text: string | null
+  reminder_extend_button_label: string | null
   reservation_url: string | null
   stamp_image_url: string | null
   shop_latitude: number | null

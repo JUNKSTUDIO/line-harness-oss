@@ -1,4 +1,5 @@
 import { jstNow } from './utils.js';
+import type { ReminderButtonLabels } from './stamp-cards.js';
 
 // クーポン管理 — クエリヘルパー
 
@@ -312,10 +313,11 @@ export async function findExpiredCouponHolders(
 export async function getCouponsDueForExpiryReminder(
   db: D1Database,
   now: Date,
-): Promise<Array<UserCouponRow & { line_user_id: string; channel_access_token: string; reservation_url: string | null; coupon_name: string; reminder_days_before: number }>> {
+): Promise<Array<UserCouponRow & { line_user_id: string; channel_access_token: string; reservation_url: string | null; coupon_name: string; reminder_days_before: number } & ReminderButtonLabels>> {
   const result = await db
     .prepare(
-      `SELECT uc.*, f.line_user_id, la.channel_access_token, cs.reservation_url, COALESCE(uc.coupon_name_at_issuance, ct.name) AS coupon_name, cs.reminder_days_before
+      `SELECT uc.*, f.line_user_id, la.channel_access_token, cs.reservation_url, COALESCE(uc.coupon_name_at_issuance, ct.name) AS coupon_name, cs.reminder_days_before,
+              cs.reminder_reservation_button_label, cs.reminder_reservation_helper_text, cs.reminder_extend_button_label
          FROM user_coupons uc
          INNER JOIN friends f ON f.id = uc.friend_id
          INNER JOIN line_accounts la ON la.id = uc.line_account_id
@@ -328,7 +330,7 @@ export async function getCouponsDueForExpiryReminder(
         LIMIT 200`,
     )
     .bind(now.toISOString(), now.toISOString())
-    .all<UserCouponRow & { line_user_id: string; channel_access_token: string; reservation_url: string | null; coupon_name: string; reminder_days_before: number }>();
+    .all<UserCouponRow & { line_user_id: string; channel_access_token: string; reservation_url: string | null; coupon_name: string; reminder_days_before: number } & ReminderButtonLabels>();
   return result.results;
 }
 

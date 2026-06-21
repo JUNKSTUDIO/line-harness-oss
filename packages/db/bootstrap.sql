@@ -266,7 +266,7 @@ CREATE TABLE card_settings (
   card_expiry_penalty_type IN ('none', 'reset_to_start', 'drop_to_rank', 'drop_one_level', 'reissue')
 ), card_expiry_penalty_target_rank_id TEXT REFERENCES card_ranks(id) ON DELETE SET NULL, multiplier_combination_mode TEXT NOT NULL DEFAULT 'highest_priority_only' CHECK (
   multiplier_combination_mode IN ('highest_priority_only', 'multiply_all', 'sum_all')
-), friend_anniversary_multiplier_enabled INTEGER NOT NULL DEFAULT 0, friend_anniversary_multiplier_value REAL NOT NULL DEFAULT 1.5, friend_anniversary_reminder_message TEXT, birthday_coupon_enabled INTEGER NOT NULL DEFAULT 0, birthday_coupon_template_id TEXT REFERENCES coupon_templates(id) ON DELETE SET NULL,
+), friend_anniversary_multiplier_enabled INTEGER NOT NULL DEFAULT 0, friend_anniversary_multiplier_value REAL NOT NULL DEFAULT 1.5, friend_anniversary_reminder_message TEXT, birthday_coupon_enabled INTEGER NOT NULL DEFAULT 0, birthday_coupon_template_id TEXT REFERENCES coupon_templates(id) ON DELETE SET NULL, reminder_reservation_button_label TEXT, reminder_reservation_helper_text TEXT, reminder_extend_button_label TEXT,
   CHECK (stamp_rule_type != 'per_amount' OR amount_per_stamp IS NOT NULL)
 );
 

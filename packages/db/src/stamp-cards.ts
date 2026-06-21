@@ -25,6 +25,9 @@ export interface CardSettingsRow {
   birthday_coupon_template_id: string | null;
   default_coupon_validity_days: number;
   reminder_days_before: number;
+  reminder_reservation_button_label: string | null;
+  reminder_reservation_helper_text: string | null;
+  reminder_extend_button_label: string | null;
   reservation_url: string | null;
   stamp_image_url: string | null;
   shop_latitude: number | null;
@@ -119,10 +122,11 @@ export async function upsertCardSettings(
            friend_anniversary_multiplier_enabled, friend_anniversary_multiplier_value, friend_anniversary_reminder_message,
            birthday_coupon_enabled, birthday_coupon_template_id,
            default_coupon_validity_days,
-           reminder_days_before, reservation_url, stamp_image_url, shop_latitude, shop_longitude,
+           reminder_days_before, reminder_reservation_button_label, reminder_reservation_helper_text, reminder_extend_button_label,
+           reservation_url, stamp_image_url, shop_latitude, shop_longitude,
            shop_address, weather_check_interval_minutes, weather_check_anchor_time, rank_badge_layout,
            created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         lineAccountId,
@@ -146,6 +150,9 @@ export async function upsertCardSettings(
         input.birthday_coupon_template_id ?? null,
         input.default_coupon_validity_days ?? 30,
         input.reminder_days_before ?? 3,
+        input.reminder_reservation_button_label ?? null,
+        input.reminder_reservation_helper_text ?? null,
+        input.reminder_extend_button_label ?? null,
         input.reservation_url ?? null,
         input.stamp_image_url ?? null,
         input.shop_latitude ?? null,
@@ -832,13 +839,20 @@ export async function extendUserCardExpiry(db: D1Database, cardId: string): Prom
 }
 
 /** 期限3日前 (設定値) のリマインド対象カードを抽出。 */
+export interface ReminderButtonLabels {
+  reminder_reservation_button_label: string | null;
+  reminder_reservation_helper_text: string | null;
+  reminder_extend_button_label: string | null;
+}
+
 export async function getCardsDueForExpiryReminder(
   db: D1Database,
   now: Date,
-): Promise<Array<UserCardRow & { line_user_id: string; channel_access_token: string; reservation_url: string | null; reminder_days_before: number }>> {
+): Promise<Array<UserCardRow & { line_user_id: string; channel_access_token: string; reservation_url: string | null; reminder_days_before: number } & ReminderButtonLabels>> {
   const result = await db
     .prepare(
-      `SELECT uc.*, f.line_user_id, la.channel_access_token, cs.reservation_url, cs.reminder_days_before
+      `SELECT uc.*, f.line_user_id, la.channel_access_token, cs.reservation_url, cs.reminder_days_before,
+              cs.reminder_reservation_button_label, cs.reminder_reservation_helper_text, cs.reminder_extend_button_label
          FROM user_cards uc
          INNER JOIN friends f ON f.id = uc.friend_id
          INNER JOIN line_accounts la ON la.id = uc.line_account_id
@@ -851,7 +865,7 @@ export async function getCardsDueForExpiryReminder(
         LIMIT 200`,
     )
     .bind(now.toISOString(), now.toISOString())
-    .all<UserCardRow & { line_user_id: string; channel_access_token: string; reservation_url: string | null; reminder_days_before: number }>();
+    .all<UserCardRow & { line_user_id: string; channel_access_token: string; reservation_url: string | null; reminder_days_before: number } & ReminderButtonLabels>();
   return result.results;
 }
 

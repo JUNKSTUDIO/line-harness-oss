@@ -63,7 +63,8 @@
     "055_multiplier_combination_mode.sql",
     "056_friend_anniversary_and_birthday.sql",
     "057_coupon_usage_policy.sql",
-    "058_birthday_coupon.sql"
+    "058_birthday_coupon.sql",
+    "059_reminder_button_labels.sql"
   ],
-  "migrationCount": 64
+  "migrationCount": 65
 }

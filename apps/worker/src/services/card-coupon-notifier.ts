@@ -7,6 +7,10 @@ import { getLineAccountById } from '@line-crm/db';
 
 export type ExpiryReminderKind = 'card' | 'coupon';
 
+export const DEFAULT_RESERVATION_BUTTON_LABEL = '予約する';
+export const DEFAULT_RESERVATION_HELPER_TEXT = 'お席の確保はこちらからどうぞ。';
+export const DEFAULT_EXTEND_BUTTON_LABEL = 'どうしても来店できない方はこちら（1回限定で1週間延長）';
+
 export interface ExpiryReminderContext {
   kind: ExpiryReminderKind;
   /** カード: 現在のランク名や進捗。クーポン: クーポン名。 */
@@ -15,6 +19,10 @@ export interface ExpiryReminderContext {
   reservationUrl: string | null;
   /** LIFF 延長ボタンの遷移先 (liff.line.me/<liffId>?page=stamp-card&action=extend&...) */
   extendLiffUrl: string;
+  /** 管理画面で編集可能なボタン文言・補足テキスト。未設定 (null/undefined) ならデフォルト文言を使う。 */
+  reservationButtonLabel?: string | null;
+  reservationHelperText?: string | null;
+  extendButtonLabel?: string | null;
 }
 
 /** 予約ボタンに使う最終URL。reservationUrl未設定ならLIFFのスタンプカード画面(予約セクション)へ。 */
@@ -25,6 +33,9 @@ function resolveReservationUrl(ctx: ExpiryReminderContext, fallbackLiffUrl: stri
 export function buildExpiryReminderBubble(ctx: ExpiryReminderContext, fallbackLiffUrl: string): FlexBubble {
   const title = ctx.kind === 'card' ? 'スタンプカードの有効期限が近づいています' : 'クーポンの有効期限が近づいています';
   const reservationUrl = resolveReservationUrl(ctx, fallbackLiffUrl);
+  const reservationButtonLabel = ctx.reservationButtonLabel || DEFAULT_RESERVATION_BUTTON_LABEL;
+  const reservationHelperText = ctx.reservationHelperText || DEFAULT_RESERVATION_HELPER_TEXT;
+  const extendButtonLabel = ctx.extendButtonLabel || DEFAULT_EXTEND_BUTTON_LABEL;
 
   return flexBubble({
     header: flexBox(
@@ -46,16 +57,16 @@ export function buildExpiryReminderBubble(ctx: ExpiryReminderContext, fallbackLi
           ],
           { margin: 'md' },
         ),
-        flexText('お席の確保はこちらからどうぞ。', { size: 'xs', color: '#64748b', wrap: true, margin: 'md' }),
+        flexText(reservationHelperText, { size: 'xs', color: '#64748b', wrap: true, margin: 'md' }),
       ],
       { paddingAll: '20px', spacing: 'md' },
     ),
     footer: flexBox(
       'vertical',
       [
-        flexButton({ type: 'uri', label: '予約する', uri: reservationUrl }, { style: 'primary', color: '#06C755' }),
+        flexButton({ type: 'uri', label: reservationButtonLabel, uri: reservationUrl }, { style: 'primary', color: '#06C755' }),
         flexButton(
-          { type: 'uri', label: 'どうしても来店できない方はこちら（1回限定で1週間延長）', uri: ctx.extendLiffUrl },
+          { type: 'uri', label: extendButtonLabel, uri: ctx.extendLiffUrl },
           { style: 'secondary' },
         ),
       ],

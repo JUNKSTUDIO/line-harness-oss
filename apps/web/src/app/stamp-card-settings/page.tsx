@@ -28,6 +28,9 @@ const EMPTY: CardSettings = {
   birthday_coupon_template_id: null,
   default_coupon_validity_days: 30,
   reminder_days_before: 3,
+  reminder_reservation_button_label: null,
+  reminder_reservation_helper_text: null,
+  reminder_extend_button_label: null,
   reservation_url: null,
   stamp_image_url: null,
   shop_latitude: null,
@@ -112,6 +115,9 @@ export default function StampCardSettingsPage() {
         stamp_angle_enabled: form.stamp_angle_enabled,
         default_coupon_validity_days: form.default_coupon_validity_days,
         reminder_days_before: form.reminder_days_before,
+        reminder_reservation_button_label: form.reminder_reservation_button_label,
+        reminder_reservation_helper_text: form.reminder_reservation_helper_text,
+        reminder_extend_button_label: form.reminder_extend_button_label,
         reservation_url: form.reservation_url,
         stamp_image_url: form.stamp_image_url,
         weather_check_interval_minutes: form.weather_check_interval_minutes,
@@ -296,6 +302,33 @@ export default function StampCardSettingsPage() {
               min={1}
               value={form.reminder_days_before}
               onChange={(e) => set('reminder_days_before', Number(e.target.value))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            />
+          </Field>
+          <Field label="予約ボタンの上に表示する文章（空欄で既定文言）">
+            <input
+              type="text"
+              value={form.reminder_reservation_helper_text ?? ''}
+              onChange={(e) => set('reminder_reservation_helper_text', e.target.value || null)}
+              placeholder="お席の確保はこちらからどうぞ。"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            />
+          </Field>
+          <Field label="予約ボタンの文言（空欄で既定文言）">
+            <input
+              type="text"
+              value={form.reminder_reservation_button_label ?? ''}
+              onChange={(e) => set('reminder_reservation_button_label', e.target.value || null)}
+              placeholder="予約する"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            />
+          </Field>
+          <Field label="延長ボタンの文言（空欄で既定文言）">
+            <input
+              type="text"
+              value={form.reminder_extend_button_label ?? ''}
+              onChange={(e) => set('reminder_extend_button_label', e.target.value || null)}
+              placeholder="どうしても来店できない方はこちら（1回限定で1週間延長）"
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
             />
           </Field>

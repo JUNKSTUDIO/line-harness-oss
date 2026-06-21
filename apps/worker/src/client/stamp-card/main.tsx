@@ -6,6 +6,7 @@
 
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { createPortal } from 'react-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import './styles.css';
 
@@ -171,30 +172,42 @@ function RankBadge({ card, layout }: { card: CardView; layout: 'split' | 'backgr
   );
 }
 
-function MilestonePopup({ milestone, onClose }: { milestone: MilestoneInfo; onClose: () => void }) {
-  return (
+// document.body 直下にポータルで描画する — 親要素のアニメーション (transform を残すsc-fade-in等) が
+// position:fixed の containing block を書き換えてしまい、黒背景オーバーレイが画面下まで届かなくなる
+// 問題を避けるため (祖先にtransformが指定されると inset:0 はその祖先基準になってしまう)。
+function Modal({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+  return createPortal(
     <div className="sc-modal-overlay" onClick={onClose}>
       <div className="sc-modal-card" onClick={(e) => e.stopPropagation()}>
-        {milestone.couponImageUrl && (
-          <img src={milestone.couponImageUrl} alt="" className="sc-modal-image" />
-        )}
-        <div className="p-4">
-          <div className="text-xs text-gray-500">{milestone.threshold}個達成でもらえる特典</div>
-          <div className="text-base font-bold text-gray-900 mt-1">{milestone.couponName}</div>
-          {milestone.couponDescription && (
-            <p className="text-xs text-gray-600 mt-2 whitespace-pre-wrap">{milestone.couponDescription}</p>
-          )}
-          <div className="mt-3">
-            {milestone.alreadyIssued ? (
-              <span className="sc-badge" style={{ background: '#ecfdf5', color: '#047857' }}>獲得済み🎁</span>
-            ) : (
-              <span className="sc-badge">あと{milestone.threshold}個達成で獲得できます</span>
-            )}
-          </div>
-          <button onClick={onClose} className="sc-secondary-btn mt-4">閉じる</button>
-        </div>
+        {children}
       </div>
-    </div>
+    </div>,
+    document.body,
+  );
+}
+
+function MilestonePopup({ milestone, onClose }: { milestone: MilestoneInfo; onClose: () => void }) {
+  return (
+    <Modal onClose={onClose}>
+      {milestone.couponImageUrl && (
+        <img src={milestone.couponImageUrl} alt="" className="sc-modal-image" />
+      )}
+      <div className="p-4">
+        <div className="text-xs text-gray-500">{milestone.threshold}個達成でもらえる特典</div>
+        <div className="text-base font-bold text-gray-900 mt-1">{milestone.couponName}</div>
+        {milestone.couponDescription && (
+          <p className="text-xs text-gray-600 mt-2 whitespace-pre-wrap">{milestone.couponDescription}</p>
+        )}
+        <div className="mt-3">
+          {milestone.alreadyIssued ? (
+            <span className="sc-badge" style={{ background: '#ecfdf5', color: '#047857' }}>獲得済み🎁</span>
+          ) : (
+            <span className="sc-badge">あと{milestone.threshold}個達成で獲得できます</span>
+          )}
+        </div>
+        <button onClick={onClose} className="sc-secondary-btn mt-4">閉じる</button>
+      </div>
+    </Modal>
   );
 }
 
@@ -213,22 +226,20 @@ interface CouponDetailInfo {
 // 保有クーポンをタップした際の詳細ポップアップ。お客様のクーポン一覧・スタッフのスタンプ付与確認画面の両方で使う。
 function CouponDetailPopup({ coupon, onClose }: { coupon: CouponDetailInfo; onClose: () => void }) {
   return (
-    <div className="sc-modal-overlay" onClick={onClose}>
-      <div className="sc-modal-card" onClick={(e) => e.stopPropagation()}>
-        {coupon.imageUrl && (
-          <img src={coupon.imageUrl} alt="" className="sc-modal-image" />
+    <Modal onClose={onClose}>
+      {coupon.imageUrl && (
+        <img src={coupon.imageUrl} alt="" className="sc-modal-image" />
+      )}
+      <div className="p-4">
+        {coupon.status && <span className="sc-badge">{COUPON_STATUS_LABEL[coupon.status]}</span>}
+        <div className="text-base font-bold text-gray-900 mt-1">{coupon.name}</div>
+        {coupon.description && (
+          <p className="text-xs text-gray-600 mt-2 whitespace-pre-wrap">{coupon.description}</p>
         )}
-        <div className="p-4">
-          {coupon.status && <span className="sc-badge">{COUPON_STATUS_LABEL[coupon.status]}</span>}
-          <div className="text-base font-bold text-gray-900 mt-1">{coupon.name}</div>
-          {coupon.description && (
-            <p className="text-xs text-gray-600 mt-2 whitespace-pre-wrap">{coupon.description}</p>
-          )}
-          <div className="text-xs text-gray-500 mt-3">有効期限: {formatJpDate(coupon.expiresAt)} まで</div>
-          <button onClick={onClose} className="sc-secondary-btn mt-4">閉じる</button>
-        </div>
+        <div className="text-xs text-gray-500 mt-3">有効期限: {formatJpDate(coupon.expiresAt)} まで</div>
+        <button onClick={onClose} className="sc-secondary-btn mt-4">閉じる</button>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -265,16 +276,20 @@ function StampGrid({ card, stampImageUrl, stampAngleEnabled }: { card: CardView;
             const half = !filled && i === fullCount && hasHalf;
             const milestone = milestoneBySlot.get(i);
             return (
-              <div
-                key={i}
-                className={`sc-stamp-slot ${filled ? 'sc-stamp-slot-filled' : ''} ${half ? 'sc-stamp-slot-half' : ''} ${stampAngleEnabled ? '' : 'sc-stamp-no-angle'}`}
-                style={filled || half ? { animationDelay: `${i * 60}ms` } : undefined}
-              >
-                {(filled || half) && (stampImageUrl ? (
-                  <img src={stampImageUrl} alt="" className="sc-stamp-image" />
-                ) : (
-                  <span className="sc-stamp-mark">済</span>
-                ))}
+              <div key={i} className={`sc-stamp-slot ${stampAngleEnabled ? '' : 'sc-stamp-no-angle'}`}>
+                {/* スタンプ画像/印のクリップ (円形・半分カット) はこの内側ラッパーだけに適用し、
+                    外側のスロットには overflow:hidden を持たせない — マイルストーン印がマス角に
+                    はみ出して配置される際に、自身のクリップで欠けてしまうのを防ぐため。 */}
+                <div
+                  className={`sc-stamp-fill ${filled ? 'sc-stamp-slot-filled' : ''} ${half ? 'sc-stamp-slot-half' : ''}`}
+                  style={filled || half ? { animationDelay: `${i * 60}ms` } : undefined}
+                >
+                  {(filled || half) && (stampImageUrl ? (
+                    <img src={stampImageUrl} alt="" className="sc-stamp-image" />
+                  ) : (
+                    <span className="sc-stamp-mark">済</span>
+                  ))}
+                </div>
                 {milestone && (
                   <button
                     className="sc-milestone-marker"
