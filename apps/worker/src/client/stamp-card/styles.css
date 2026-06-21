@@ -158,6 +158,18 @@ body.sc-active #app {
   70% { transform: scale(1.15) rotate(-12deg); opacity: 1; }
   100% { transform: scale(1) rotate(-12deg); opacity: 1; }
 }
+/* 管理画面の設定で「斜めにしない」が選ばれた場合: 角度を一切付けない見た目に切り替える。 */
+.sc-stamp-no-angle .sc-stamp-mark {
+  transform: none;
+}
+.sc-stamp-no-angle.sc-stamp-slot-filled {
+  animation-name: sc-stamp-pop-straight;
+}
+@keyframes sc-stamp-pop-straight {
+  0% { transform: scale(0); opacity: 0; }
+  70% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
 
 /* 延長セクション (期限間近 = warning トーン。プッシュ通知のFlexヘッダーと色を統一) */
 .sc-extend-card {

@@ -262,7 +262,7 @@ CREATE TABLE card_settings (
   reminder_days_before        INTEGER NOT NULL DEFAULT 3,      -- 期限前リマインドのタイミング (残り○日)
   reservation_url             TEXT,                            -- 外部予約システムURL (NULLなら社内LIFF予約に誘導)
   created_at                 TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
-  updated_at                 TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')), stamp_image_url TEXT, shop_latitude REAL, shop_longitude REAL, weather_last_checked_at TEXT, shop_address TEXT, weather_check_interval_minutes INTEGER NOT NULL DEFAULT 30, weather_check_anchor_time TEXT NOT NULL DEFAULT '00:00', rank_badge_layout TEXT NOT NULL DEFAULT 'split' CHECK (rank_badge_layout IN ('split', 'background')),
+  updated_at                 TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')), stamp_image_url TEXT, shop_latitude REAL, shop_longitude REAL, weather_last_checked_at TEXT, shop_address TEXT, weather_check_interval_minutes INTEGER NOT NULL DEFAULT 30, weather_check_anchor_time TEXT NOT NULL DEFAULT '00:00', rank_badge_layout TEXT NOT NULL DEFAULT 'split' CHECK (rank_badge_layout IN ('split', 'background')), card_expiry_mode TEXT NOT NULL DEFAULT 'since_last_stamp' CHECK (card_expiry_mode IN ('since_last_stamp', 'since_issue')), card_expiry_days_from_issue INTEGER, stamp_angle_enabled INTEGER NOT NULL DEFAULT 1,
   CHECK (stamp_rule_type != 'per_amount' OR amount_per_stamp IS NOT NULL)
 );
 
@@ -627,20 +627,21 @@ CREATE TABLE outgoing_webhooks (
   updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
 );
 
-CREATE TABLE point_multiplier_rules (
+CREATE TABLE "point_multiplier_rules" (
   id                TEXT PRIMARY KEY,
   line_account_id   TEXT NOT NULL REFERENCES line_accounts(id) ON DELETE CASCADE,
-  name              TEXT NOT NULL,                      -- 例: "雨の日2倍"
+  name              TEXT NOT NULL,
   multiplier        REAL NOT NULL CHECK (multiplier > 0),
-  condition_type    TEXT NOT NULL CHECK (condition_type IN ('manual', 'weekday', 'time_range', 'period', 'weather')),
-  weekday           INTEGER CHECK (weekday BETWEEN 0 AND 6),   -- condition_type='weekday' (0=日曜)
-  time_start        TEXT,                                      -- condition_type='time_range' "HH:MM"
+  condition_type    TEXT NOT NULL CHECK (condition_type IN ('manual', 'weekday', 'time_range', 'period', 'weather', 'day_of_month')),
+  weekday           INTEGER CHECK (weekday BETWEEN 0 AND 6),
+  day_of_month      INTEGER CHECK (day_of_month BETWEEN 1 AND 31),
+  time_start        TEXT,
   time_end          TEXT,
-  starts_at         TEXT,                                      -- condition_type='period' (JST, "YYYY-MM-DD" or datetime)
+  starts_at         TEXT,
   ends_at           TEXT,
-  weather_condition TEXT CHECK (weather_condition IN ('rain', 'snow')), -- condition_type='weather'
-  is_active         INTEGER NOT NULL DEFAULT 1,                -- 当日の手動ON/OFFスイッチ (天候/manual型はこれが実質トグル)
-  priority          INTEGER NOT NULL DEFAULT 0,                -- 複数同時成立時、最大priorityの1件のみ採用 (乗算スタックはしない)
+  weather_condition TEXT CHECK (weather_condition IN ('rain', 'snow')),
+  is_active         INTEGER NOT NULL DEFAULT 1,
+  priority          INTEGER NOT NULL DEFAULT 0,
   created_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
   updated_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
 );

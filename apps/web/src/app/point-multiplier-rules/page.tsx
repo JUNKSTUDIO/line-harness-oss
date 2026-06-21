@@ -10,7 +10,8 @@ const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土']
 const CONDITION_LABELS: Record<PointMultiplierRule['condition_type'], string> = {
   manual: '手動 (このスイッチがそのままON/OFF)',
   weather: '天候 (このスイッチがそのままON/OFF)',
-  weekday: '特定曜日',
+  weekday: '毎週○曜日',
+  day_of_month: '毎月○日',
   time_range: '特定時間帯',
   period: '特定期間',
 }
@@ -20,6 +21,7 @@ function describeCondition(rule: PointMultiplierRule): string {
     case 'manual': return '手動スイッチ'
     case 'weather': return `天候連動 (${rule.weather_condition === 'rain' ? '雨' : rule.weather_condition === 'snow' ? '雪' : '-'})`
     case 'weekday': return `毎週${WEEKDAY_LABELS[rule.weekday ?? 0]}曜日`
+    case 'day_of_month': return `毎月${rule.day_of_month ?? '?'}日`
     case 'time_range': return `${rule.time_start ?? '--:--'} 〜 ${rule.time_end ?? '--:--'}`
     case 'period': return `${rule.starts_at ?? '?'} 〜 ${rule.ends_at ?? '?'}`
   }
@@ -30,6 +32,7 @@ const EMPTY_FORM = {
   multiplier: 2,
   conditionType: 'manual' as PointMultiplierRule['condition_type'],
   weekday: 0,
+  dayOfMonth: 1,
   timeStart: '15:00',
   timeEnd: '17:00',
   startsAt: '',
@@ -78,6 +81,7 @@ export default function PointMultiplierRulesPage() {
         multiplier: form.multiplier,
         conditionType: form.conditionType,
         weekday: form.conditionType === 'weekday' ? form.weekday : undefined,
+        dayOfMonth: form.conditionType === 'day_of_month' ? form.dayOfMonth : undefined,
         timeStart: form.conditionType === 'time_range' ? form.timeStart : undefined,
         timeEnd: form.conditionType === 'time_range' ? form.timeEnd : undefined,
         startsAt: form.conditionType === 'period' ? form.startsAt : undefined,
@@ -163,6 +167,20 @@ export default function PointMultiplierRulesPage() {
                 <select value={form.weekday} onChange={(e) => setForm({ ...form, weekday: Number(e.target.value) })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
                   {WEEKDAY_LABELS.map((label, i) => <option key={i} value={i}>{label}曜日</option>)}
                 </select>
+              </div>
+            )}
+            {form.conditionType === 'day_of_month' && (
+              <div className="col-span-2">
+                <label className="block text-xs text-gray-600 mb-1">何日</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={31}
+                  value={form.dayOfMonth}
+                  onChange={(e) => setForm({ ...form, dayOfMonth: Number(e.target.value) })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                />
+                <p className="text-xs text-gray-400 mt-1">31日等、その月に存在しない日を指定した月は適用されません。</p>
               </div>
             )}
             {form.conditionType === 'time_range' && (

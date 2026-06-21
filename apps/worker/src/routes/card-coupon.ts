@@ -112,6 +112,7 @@ cardCoupon.get('/api/liff/cards/me', async (c) => {
     reservationUrl: settings?.reservation_url ?? null,
     stampImageUrl: settings?.stamp_image_url ?? null,
     rankBadgeLayout: settings?.rank_badge_layout ?? 'split',
+    stampAngleEnabled: settings?.stamp_angle_enabled !== 0,
   });
 });
 

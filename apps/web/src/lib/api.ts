@@ -136,6 +136,9 @@ export interface CardSettings {
   rank_enabled: number
   flat_goal_stamps: number | null
   card_expiry_months: number | null
+  card_expiry_mode: 'since_last_stamp' | 'since_issue'
+  card_expiry_days_from_issue: number | null
+  stamp_angle_enabled: number
   default_coupon_validity_days: number
   reminder_days_before: number
   reservation_url: string | null
@@ -182,13 +185,25 @@ export interface CardRankMilestone {
   updated_at: string
 }
 
+export interface StampCardHistory {
+  card: { stampCount: number; totalStampCount: number; status: 'active' | 'expired' } | null
+  stampLogs: Array<{
+    id: string; source: string; final_points: number; multiplier_applied: number; created_at: string
+  }>
+  coupons: Array<{
+    id: string; name: string; description: string | null; imageUrl: string | null
+    status: 'unused' | 'used' | 'expired'; issuedAt: string; expiresAt: string; usedAt: string | null
+  }>
+}
+
 export interface PointMultiplierRule {
   id: string
   line_account_id: string
   name: string
   multiplier: number
-  condition_type: 'manual' | 'weekday' | 'time_range' | 'period' | 'weather'
+  condition_type: 'manual' | 'weekday' | 'time_range' | 'period' | 'weather' | 'day_of_month'
   weekday: number | null
+  day_of_month: number | null
   time_start: string | null
   time_end: string | null
   starts_at: string | null
@@ -535,13 +550,18 @@ export const api = {
       fetchApi<ApiResponse<null>>(`/api/card-rank-milestones/${id}`, { method: 'DELETE' }),
   },
 
+  stampCardHistory: {
+    get: (friendId: string, accountId: string) =>
+      fetchApi<ApiResponse<StampCardHistory>>(`/api/friends/${friendId}/stamp-card-history?accountId=${accountId}`),
+  },
+
   pointMultiplierRules: {
     list: (accountId: string) =>
       fetchApi<ApiResponse<PointMultiplierRule[]>>(`/api/point-multiplier-rules?accountId=${accountId}`),
     create: (body: {
       accountId: string; name: string; multiplier: number
       conditionType: PointMultiplierRule['condition_type']
-      weekday?: number | null; timeStart?: string | null; timeEnd?: string | null
+      weekday?: number | null; dayOfMonth?: number | null; timeStart?: string | null; timeEnd?: string | null
       startsAt?: string | null; endsAt?: string | null
       weatherCondition?: PointMultiplierRule['weather_condition']; priority?: number
     }) => fetchApi<ApiResponse<PointMultiplierRule>>('/api/point-multiplier-rules', { method: 'POST', body: JSON.stringify(body) }),

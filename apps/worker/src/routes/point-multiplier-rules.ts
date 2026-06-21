@@ -29,6 +29,7 @@ pointMultiplierRules.post('/api/point-multiplier-rules', async (c) => {
     multiplier: number;
     conditionType: PointMultiplierRuleRow['condition_type'];
     weekday?: number | null;
+    dayOfMonth?: number | null;
     timeStart?: string | null;
     timeEnd?: string | null;
     startsAt?: string | null;
@@ -45,6 +46,7 @@ pointMultiplierRules.post('/api/point-multiplier-rules', async (c) => {
     multiplier: body.multiplier,
     conditionType: body.conditionType,
     weekday: body.weekday,
+    dayOfMonth: body.dayOfMonth,
     timeStart: body.timeStart,
     timeEnd: body.timeEnd,
     startsAt: body.startsAt,

@@ -22,6 +22,7 @@ import {
   getGrantOperators,
   removeGrantOperator,
   recordMilestoneIssued,
+  getStampLogsForUserCard,
 } from '@line-crm/db';
 import { signGrantToken, verifyGrantToken, signOperatorRegistrationToken, verifyOperatorRegistrationToken } from '../lib/qr-token.js';
 import { verifyCallerLineUserId, verifyCallerProfile } from '../services/liff-auth.js';
@@ -91,13 +92,15 @@ stampGrant.get('/api/liff/stamp-cards/grant-preview', async (c) => {
   const friend = await getFriendById(c.env.DB, payload.friendId);
   if (!friend) return c.json({ success: false, error: 'friend_not_found' }, 404);
 
-  const [card, settings, ranks, coupons] = await Promise.all([
+  const [card, settings, ranks, coupons, allCoupons] = await Promise.all([
     getOrCreateUserCard(c.env.DB, payload.friendId, payload.accountId),
     getCardSettings(c.env.DB, payload.accountId),
     getCardRanks(c.env.DB, payload.accountId),
     getUserCoupons(c.env.DB, payload.friendId, { status: 'unused' }),
+    getUserCoupons(c.env.DB, payload.friendId),
   ]);
   const currentRank = settings?.rank_enabled ? ranks.find((r) => r.id === card.current_rank_id) ?? null : null;
+  const stampLogs = await getStampLogsForUserCard(c.env.DB, card.id, 20);
 
   return c.json({
     success: true,
@@ -106,6 +109,13 @@ stampGrant.get('/api/liff/stamp-cards/grant-preview', async (c) => {
       card: { stampCount: card.stamp_count, currentRankName: currentRank?.name ?? null },
       stampRuleType: settings?.stamp_rule_type ?? 'per_visit',
       coupons: coupons.map((cp) => ({ id: cp.id, name: cp.display_name, expiresAt: cp.expires_at })),
+      // スタッフがその場で利用履歴を確認できるように、付与ログ・全クーポン履歴 (未使用/使用済/期限切れ) も返す。
+      stampLogs: stampLogs.map((log) => ({
+        id: log.id, source: log.source, finalPoints: log.final_points, multiplierApplied: log.multiplier_applied, createdAt: log.created_at,
+      })),
+      couponHistory: allCoupons.map((cp) => ({
+        id: cp.id, name: cp.display_name, status: cp.status, issuedAt: cp.issued_at, expiresAt: cp.expires_at, usedAt: cp.used_at,
+      })),
     },
   });
 });
@@ -113,7 +123,7 @@ stampGrant.get('/api/liff/stamp-cards/grant-preview', async (c) => {
 // POST /api/liff/stamp-cards/grant — 実際にスタンプを付与。
 // トークンの有効性に加え、スキャンした側が登録済みオペレーターであることを要求する (不正利用防止)。
 stampGrant.post('/api/liff/stamp-cards/grant', async (c) => {
-  const body = await c.req.json<{ token: string; amountYen?: number }>();
+  const body = await c.req.json<{ token: string; amountYen?: number; points?: number }>();
   const payload = await verifyGrantToken(c.env.API_KEY ?? 'dev-secret', body.token);
   if (!payload) return c.json({ success: false, error: 'invalid_or_expired_token' }, 401);
 
@@ -127,6 +137,7 @@ stampGrant.post('/api/liff/stamp-cards/grant', async (c) => {
     lineAccountId: payload.accountId,
     source,
     amountYen: body.amountYen,
+    manualBasePoints: source === 'visit' ? body.points : undefined,
   });
 
   const account = await getLineAccountById(c.env.DB, payload.accountId);

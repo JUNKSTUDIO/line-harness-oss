@@ -14,6 +14,9 @@ const EMPTY: CardSettings = {
   rank_enabled: 0,
   flat_goal_stamps: 5,
   card_expiry_months: null,
+  card_expiry_mode: 'since_last_stamp',
+  card_expiry_days_from_issue: null,
+  stamp_angle_enabled: 1,
   default_coupon_validity_days: 30,
   reminder_days_before: 3,
   reservation_url: null,
@@ -87,6 +90,9 @@ export default function StampCardSettingsPage() {
         rank_enabled: form.rank_enabled,
         flat_goal_stamps: form.flat_goal_stamps,
         card_expiry_months: form.card_expiry_months,
+        card_expiry_mode: form.card_expiry_mode,
+        card_expiry_days_from_issue: form.card_expiry_days_from_issue,
+        stamp_angle_enabled: form.stamp_angle_enabled,
         default_coupon_validity_days: form.default_coupon_validity_days,
         reminder_days_before: form.reminder_days_before,
         reservation_url: form.reservation_url,
@@ -212,19 +218,52 @@ export default function StampCardSettingsPage() {
             onChange={(v) => set('stamp_image_url', v?.mode === 'url' ? v.url : null)}
             label="スタンプが押されたマスに表示する画像（未設定なら「済」のテキストスタンプ）"
           />
+          <Field label="スタンプの向き">
+            <select
+              value={form.stamp_angle_enabled ? '1' : '0'}
+              onChange={(e) => set('stamp_angle_enabled', Number(e.target.value))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            >
+              <option value="1">斜め（紙のスタンプカードらしい見た目）</option>
+              <option value="0">まっすぐ（角度をつけない）</option>
+            </select>
+          </Field>
         </Section>
 
         <Section title="有効期限 / リマインド">
-          <Field label="カードの有効期限（最終利用日からの月数。空欄=無期限）">
-            <input
-              type="number"
-              min={1}
-              value={form.card_expiry_months ?? ''}
-              onChange={(e) => set('card_expiry_months', e.target.value ? Number(e.target.value) : null)}
+          <Field label="有効期限の基準">
+            <select
+              value={form.card_expiry_mode}
+              onChange={(e) => set('card_expiry_mode', e.target.value as CardSettings['card_expiry_mode'])}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-              placeholder="例: 3"
-            />
+            >
+              <option value="since_last_stamp">最終利用日から（来店ごとに期限が延びる）</option>
+              <option value="since_issue">カード発行日から固定（来店しても延びない）</option>
+            </select>
           </Field>
+          {form.card_expiry_mode === 'since_last_stamp' ? (
+            <Field label="カードの有効期限（最終利用日からの月数。空欄=無期限）">
+              <input
+                type="number"
+                min={1}
+                value={form.card_expiry_months ?? ''}
+                onChange={(e) => set('card_expiry_months', e.target.value ? Number(e.target.value) : null)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                placeholder="例: 3"
+              />
+            </Field>
+          ) : (
+            <Field label="カードの有効期限（発行日からの日数。空欄=無期限）">
+              <input
+                type="number"
+                min={1}
+                value={form.card_expiry_days_from_issue ?? ''}
+                onChange={(e) => set('card_expiry_days_from_issue', e.target.value ? Number(e.target.value) : null)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                placeholder="例: 90"
+              />
+            </Field>
+          )}
           <Field label="クーポンの既定有効期限（日数）">
             <input
               type="number"

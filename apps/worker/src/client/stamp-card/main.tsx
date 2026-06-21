@@ -47,6 +47,7 @@ interface CardResponse {
   reservationUrl: string | null;
   stampImageUrl: string | null;
   rankBadgeLayout: 'split' | 'background';
+  stampAngleEnabled: boolean;
 }
 
 interface CouponItem {
@@ -199,7 +200,7 @@ function MilestonePopup({ milestone, onClose }: { milestone: MilestoneInfo; onCl
 // goal が無い (フリー集計) 店舗ではマス目を描けないので数字表示にフォールバックする。
 // 0.5刻みの半分スタンプ (雨の日1.5倍等) は、該当マスの左半分だけ画像/印を見せて表現する。
 // マイルストーン (ランク内の中間到達報酬) が設定されたマスには🎁印を重ね、タップで詳細を表示する。
-function StampGrid({ card, stampImageUrl }: { card: CardView; stampImageUrl: string | null }) {
+function StampGrid({ card, stampImageUrl, stampAngleEnabled }: { card: CardView; stampImageUrl: string | null; stampAngleEnabled: boolean }) {
   const goal = card.goal;
   const [activeMilestone, setActiveMilestone] = useState<MilestoneInfo | null>(null);
   const fullCount = Math.floor(card.stampCount);
@@ -230,7 +231,7 @@ function StampGrid({ card, stampImageUrl }: { card: CardView; stampImageUrl: str
             return (
               <div
                 key={i}
-                className={`sc-stamp-slot ${filled ? 'sc-stamp-slot-filled' : ''} ${half ? 'sc-stamp-slot-half' : ''}`}
+                className={`sc-stamp-slot ${filled ? 'sc-stamp-slot-filled' : ''} ${half ? 'sc-stamp-slot-half' : ''} ${stampAngleEnabled ? '' : 'sc-stamp-no-angle'}`}
                 style={filled || half ? { animationDelay: `${i * 60}ms` } : undefined}
               >
                 {(filled || half) && (stampImageUrl ? (
@@ -333,12 +334,12 @@ function CardScreen({ ctx, onShowCoupons, onShowQr }: { ctx: StampCardContext; o
   if (error) return <div className="px-4 py-6"><div className="sc-card text-center text-sm text-gray-600">{error}</div></div>;
   if (!data) return <Spinner />;
 
-  const { card, reservationUrl, stampImageUrl, rankBadgeLayout } = data;
+  const { card, reservationUrl, stampImageUrl, rankBadgeLayout, stampAngleEnabled } = data;
 
   return (
     <div className="px-4 py-4 pb-10 sc-fade-in">
       <RankBadge card={card} layout={rankBadgeLayout} />
-      <StampGrid card={card} stampImageUrl={stampImageUrl} />
+      <StampGrid card={card} stampImageUrl={stampImageUrl} stampAngleEnabled={stampAngleEnabled} />
       {card.expiresAt && (
         <div className="text-xs text-gray-500 mt-2 text-right">
           カードの有効期限: {formatJpDate(card.expiresAt)} まで
@@ -415,6 +416,65 @@ interface GrantPreview {
   card: { stampCount: number; currentRankName: string | null };
   stampRuleType: 'per_visit' | 'per_amount';
   coupons: Array<{ id: string; name: string; expiresAt: string }>;
+  stampLogs: Array<{ id: string; source: string; finalPoints: number; multiplierApplied: number; createdAt: string }>;
+  couponHistory: Array<{ id: string; name: string; status: 'unused' | 'used' | 'expired'; issuedAt: string; expiresAt: string; usedAt: string | null }>;
+}
+
+const COUPON_HISTORY_STATUS_LABEL: Record<'unused' | 'used' | 'expired', string> = {
+  unused: '未使用', used: '使用済み', expired: '期限切れ',
+};
+
+function formatJpDateTime(iso: string): string {
+  return new Date(iso).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function HistorySection({ preview }: { preview: GrantPreview }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="sc-card mt-3">
+      <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center justify-between text-xs text-gray-600">
+        <span>このお客様の利用履歴を見る</span>
+        <span>{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="mt-3 space-y-3">
+          <div>
+            <div className="text-xs text-gray-500 mb-1.5">スタンプ付与履歴</div>
+            {preview.stampLogs.length === 0 ? (
+              <div className="text-xs text-gray-400">まだ履歴がありません</div>
+            ) : (
+              <ul className="space-y-1">
+                {preview.stampLogs.map((log) => (
+                  <li key={log.id} className="text-xs text-gray-600 flex justify-between">
+                    <span>{formatJpDateTime(log.createdAt)}</span>
+                    <span>+{log.finalPoints}pt{log.multiplierApplied !== 1 ? `（${log.multiplierApplied}倍）` : ''}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div>
+            <div className="text-xs text-gray-500 mb-1.5">クーポン履歴</div>
+            {preview.couponHistory.length === 0 ? (
+              <div className="text-xs text-gray-400">まだ履歴がありません</div>
+            ) : (
+              <ul className="space-y-1">
+                {preview.couponHistory.map((cp) => (
+                  <li key={cp.id} className="text-xs text-gray-600 flex justify-between gap-2">
+                    <span className="truncate">{cp.name}</span>
+                    <span className="shrink-0">
+                      {COUPON_HISTORY_STATUS_LABEL[cp.status]}
+                      {cp.status === 'used' && cp.usedAt ? `（${formatJpDateTime(cp.usedAt)}）` : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -441,6 +501,7 @@ function GrantScreen({ ctx, token }: { ctx: StampCardContext; token: string }) {
   const [preview, setPreview] = useState<GrantPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [amount, setAmount] = useState(1000);
+  const [points, setPoints] = useState(1);
   const [busy, setBusy] = useState(false);
   const [granted, setGranted] = useState<{ stampCount: number; rankedUp: boolean; issuedCoupon: boolean } | null>(null);
   const [redeemedIds, setRedeemedIds] = useState<Set<string>>(new Set());
@@ -463,7 +524,11 @@ function GrantScreen({ ctx, token }: { ctx: StampCardContext; token: string }) {
         {
           method: 'POST',
           headers: buildAuthHeaders(ctx, { 'Content-Type': 'application/json' }),
-          body: JSON.stringify({ token, amountYen: preview?.stampRuleType === 'per_amount' ? amount : undefined }),
+          body: JSON.stringify({
+            token,
+            amountYen: preview?.stampRuleType === 'per_amount' ? amount : undefined,
+            points: preview?.stampRuleType === 'per_visit' ? points : undefined,
+          }),
         },
       );
       setGranted(res.data);
@@ -521,6 +586,20 @@ function GrantScreen({ ctx, token }: { ctx: StampCardContext; token: string }) {
               />
             </div>
           )}
+          {preview.stampRuleType === 'per_visit' && (
+            <div className="mb-3">
+              <label className="block text-xs text-gray-600 mb-1">付与ポイント数（0.5刻みで指定できます）</label>
+              <input
+                type="number"
+                min={0.5}
+                step={0.5}
+                value={points}
+                onChange={(e) => setPoints(Number(e.target.value))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              />
+              <p className="text-xs text-gray-400 mt-1">雨の日倍率などが有効な場合は、ここで指定した数にさらに倍率がかかります。</p>
+            </div>
+          )}
           {error && <div className="text-xs text-red-600 mb-2">{error}</div>}
           <button onClick={grant} disabled={busy} className="sc-primary-btn">
             {busy ? '処理中...' : 'スタンプを付与する'}
@@ -547,6 +626,8 @@ function GrantScreen({ ctx, token }: { ctx: StampCardContext; token: string }) {
           </ul>
         </div>
       )}
+
+      <HistorySection preview={preview} />
     </div>
   );
 }

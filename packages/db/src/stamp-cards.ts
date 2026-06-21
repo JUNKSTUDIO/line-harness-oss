@@ -10,6 +10,9 @@ export interface CardSettingsRow {
   rank_enabled: number;
   flat_goal_stamps: number | null;
   card_expiry_months: number | null;
+  card_expiry_mode: 'since_last_stamp' | 'since_issue';
+  card_expiry_days_from_issue: number | null;
+  stamp_angle_enabled: number;
   default_coupon_validity_days: number;
   reminder_days_before: number;
   reservation_url: string | null;
@@ -52,8 +55,9 @@ export interface PointMultiplierRuleRow {
   line_account_id: string;
   name: string;
   multiplier: number;
-  condition_type: 'manual' | 'weekday' | 'time_range' | 'period' | 'weather';
+  condition_type: 'manual' | 'weekday' | 'time_range' | 'period' | 'weather' | 'day_of_month';
   weekday: number | null;
+  day_of_month: number | null;
   time_start: string | null;
   time_end: string | null;
   starts_at: string | null;
@@ -99,11 +103,12 @@ export async function upsertCardSettings(
       .prepare(
         `INSERT INTO card_settings (
            line_account_id, stamp_rule_type, amount_per_stamp, signup_bonus_stamps,
-           rank_enabled, flat_goal_stamps, card_expiry_months, default_coupon_validity_days,
+           rank_enabled, flat_goal_stamps, card_expiry_months, card_expiry_mode, card_expiry_days_from_issue,
+           stamp_angle_enabled, default_coupon_validity_days,
            reminder_days_before, reservation_url, stamp_image_url, shop_latitude, shop_longitude,
            shop_address, weather_check_interval_minutes, weather_check_anchor_time, rank_badge_layout,
            created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         lineAccountId,
@@ -113,6 +118,9 @@ export async function upsertCardSettings(
         input.rank_enabled ?? 0,
         input.flat_goal_stamps ?? null,
         input.card_expiry_months ?? null,
+        input.card_expiry_mode ?? 'since_last_stamp',
+        input.card_expiry_days_from_issue ?? null,
+        input.stamp_angle_enabled ?? 1,
         input.default_coupon_validity_days ?? 30,
         input.reminder_days_before ?? 3,
         input.reservation_url ?? null,
@@ -345,6 +353,7 @@ export interface CreatePointMultiplierRuleInput {
   multiplier: number;
   conditionType: PointMultiplierRuleRow['condition_type'];
   weekday?: number | null;
+  dayOfMonth?: number | null;
   timeStart?: string | null;
   timeEnd?: string | null;
   startsAt?: string | null;
@@ -359,13 +368,13 @@ export async function createPointMultiplierRule(db: D1Database, input: CreatePoi
   await db
     .prepare(
       `INSERT INTO point_multiplier_rules (
-         id, line_account_id, name, multiplier, condition_type, weekday, time_start, time_end,
+         id, line_account_id, name, multiplier, condition_type, weekday, day_of_month, time_start, time_end,
          starts_at, ends_at, weather_condition, priority, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id, input.lineAccountId, input.name, input.multiplier, input.conditionType,
-      input.weekday ?? null, input.timeStart ?? null, input.timeEnd ?? null,
+      input.weekday ?? null, input.dayOfMonth ?? null, input.timeStart ?? null, input.timeEnd ?? null,
       input.startsAt ?? null, input.endsAt ?? null, input.weatherCondition ?? null,
       input.priority ?? 0, now, now,
     )
@@ -378,13 +387,13 @@ export async function updatePointMultiplierRule(
   id: string,
   updates: Partial<{
     name: string; multiplier: number; conditionType: PointMultiplierRuleRow['condition_type'];
-    weekday: number | null; timeStart: string | null; timeEnd: string | null;
+    weekday: number | null; dayOfMonth: number | null; timeStart: string | null; timeEnd: string | null;
     startsAt: string | null; endsAt: string | null; weatherCondition: PointMultiplierRuleRow['weather_condition'];
     priority: number; isActive: boolean;
   }>,
 ): Promise<PointMultiplierRuleRow | null> {
   const colMap: Record<string, string> = {
-    name: 'name', multiplier: 'multiplier', conditionType: 'condition_type', weekday: 'weekday',
+    name: 'name', multiplier: 'multiplier', conditionType: 'condition_type', weekday: 'weekday', dayOfMonth: 'day_of_month',
     timeStart: 'time_start', timeEnd: 'time_end', startsAt: 'starts_at', endsAt: 'ends_at',
     weatherCondition: 'weather_condition', priority: 'priority',
   };
@@ -415,7 +424,11 @@ export async function setMultiplierRuleActive(db: D1Database, id: string, isActi
  * 現在時刻に成立する倍率ルールのうち、priority最大の1件を返す (乗算スタックしない)。
  * 「雨の日」等のweather型はis_active=1であることそのものが当日トグルの実体。
  */
+const JST_OFFSET_MS = 9 * 60 * 60_000;
+
 export function resolveActiveMultiplier(rules: PointMultiplierRuleRow[], now: Date): { multiplier: number; ruleId: string | null } {
+  // Workers の実行時刻はUTC基準。曜日/日付の判定はJSTの暦日で行う必要がある。
+  const jstNowDate = new Date(now.getTime() + JST_OFFSET_MS);
   const matching = rules.filter((rule) => {
     if (!rule.is_active) return false;
     switch (rule.condition_type) {
@@ -423,7 +436,9 @@ export function resolveActiveMultiplier(rules: PointMultiplierRuleRow[], now: Da
       case 'weather':
         return true; // is_active そのものが当日のON/OFF
       case 'weekday':
-        return rule.weekday === now.getDay();
+        return rule.weekday === jstNowDate.getUTCDay();
+      case 'day_of_month':
+        return rule.day_of_month === jstNowDate.getUTCDate();
       case 'time_range': {
         if (!rule.time_start || !rule.time_end) return false;
         const hm = now.toTimeString().slice(0, 5);
@@ -456,10 +471,51 @@ export async function getUserCardById(db: D1Database, id: string): Promise<UserC
   return db.prepare(`SELECT * FROM user_cards WHERE id = ?`).bind(id).first<UserCardRow>();
 }
 
+export interface StampLogRow {
+  id: string;
+  user_card_id: string;
+  source: 'visit' | 'amount' | 'signup_bonus' | 'manual';
+  amount_yen: number | null;
+  base_points: number;
+  multiplier_applied: number;
+  final_points: number;
+  multiplier_rule_id: string | null;
+  granted_by_staff_id: string | null;
+  created_at: string;
+}
+
+/** 管理画面 / スタッフのQRスキャン画面向け — そのお客様のスタンプ付与履歴 (新しい順)。 */
+export async function getStampLogsForUserCard(db: D1Database, userCardId: string, limit = 50): Promise<StampLogRow[]> {
+  const result = await db
+    .prepare(`SELECT * FROM stamp_logs WHERE user_card_id = ? ORDER BY created_at DESC LIMIT ?`)
+    .bind(userCardId, limit)
+    .all<StampLogRow>();
+  return result.results;
+}
+
 function addMonths(iso: string, months: number): string {
   const d = new Date(iso);
   d.setMonth(d.getMonth() + months);
   return d.toISOString();
+}
+
+function addDays(iso: string, days: number): string {
+  return new Date(new Date(iso).getTime() + days * 24 * 3600_000).toISOString();
+}
+
+/**
+ * カード有効期限の算出。2つのモードを切替可能:
+ *   - since_last_stamp (既定): 最終スタンプ日からNヶ月後 (来店ごとに延長される)
+ *   - since_issue: カード発行日からN日後固定 (来店しても延びない)
+ * since_issue は issuedAtIso (= user_cards.created_at, 発行時に1回だけ確定する値) を
+ * 基準にするため、毎回呼んでも結果が変わらず安全に再計算できる。
+ */
+function computeCardExpiresAt(settings: CardSettingsRow | null, issuedAtIso: string, lastStampedAtIso: string): string | null {
+  if (!settings) return null;
+  if (settings.card_expiry_mode === 'since_issue') {
+    return settings.card_expiry_days_from_issue ? addDays(issuedAtIso, settings.card_expiry_days_from_issue) : null;
+  }
+  return settings.card_expiry_months ? addMonths(lastStampedAtIso, settings.card_expiry_months) : null;
 }
 
 /** カード未発行なら発行 (発行時ボーナス込み)。既にあれば既存行を返す。 */
@@ -479,7 +535,7 @@ export async function getOrCreateUserCard(
   const id = crypto.randomUUID();
   const now = jstNow();
   const nowIso = new Date().toISOString();
-  const expiresAt = settings?.card_expiry_months ? addMonths(nowIso, settings.card_expiry_months) : null;
+  const expiresAt = computeCardExpiresAt(settings, nowIso, nowIso);
 
   await db
     .prepare(
@@ -520,6 +576,8 @@ export async function grantStamp(
     source: 'visit' | 'amount' | 'manual';
     amountYen?: number;
     grantedByStaffId?: string;
+    /** スタッフ端末の「ポイント数」入力欄からの直接指定 (0.5刻み)。指定時は per_visit の既定値1を上書きする。 */
+    manualBasePoints?: number;
     now?: Date;
   },
 ): Promise<GrantStampResult> {
@@ -527,8 +585,8 @@ export async function grantStamp(
   const settings = await getCardSettings(db, params.lineAccountId);
   const card = await getOrCreateUserCard(db, params.friendId, params.lineAccountId);
 
-  // 基本付与pt: per_visit=1, per_amount=floor(amount / amount_per_stamp)
-  let basePoints = 1;
+  // 基本付与pt: per_visit=1 (manualBasePointsで上書き可), per_amount=floor(amount / amount_per_stamp)
+  let basePoints = params.manualBasePoints ?? 1;
   if (params.source === 'amount') {
     const unit = settings?.amount_per_stamp ?? 1000;
     basePoints = Math.floor((params.amountYen ?? 0) / unit);
@@ -590,7 +648,7 @@ export async function grantStamp(
   }
 
   const nowIso = now.toISOString();
-  const expiresAt = settings?.card_expiry_months ? addMonths(nowIso, settings.card_expiry_months) : null;
+  const expiresAt = computeCardExpiresAt(settings, card.created_at, nowIso);
 
   await db
     .prepare(
