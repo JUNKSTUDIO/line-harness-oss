@@ -1,7 +1,7 @@
 // カードランク管理 — 管理画面向けエンドポイント。
 
 import { Hono } from 'hono';
-import { getCardRanks, createCardRank, updateCardRank, deleteCardRank } from '@line-crm/db';
+import { getCardRanks, createCardRank, updateCardRank, deleteCardRank, reorderCardRanks } from '@line-crm/db';
 import type { Env } from '../index.js';
 
 const cardRanks = new Hono<Env>();
@@ -53,6 +53,17 @@ cardRanks.patch('/api/card-ranks/:id', async (c) => {
 cardRanks.delete('/api/card-ranks/:id', async (c) => {
   await deleteCardRank(c.env.DB, c.req.param('id'));
   return c.json({ success: true, data: null });
+});
+
+// POST /api/card-ranks/reorder — { accountId, orderedIds: string[] } (先頭が rank_order=0)
+cardRanks.post('/api/card-ranks/reorder', async (c) => {
+  const body = await c.req.json<{ accountId: string; orderedIds: string[] }>();
+  if (!body.accountId || !Array.isArray(body.orderedIds)) {
+    return c.json({ success: false, error: 'accountId, orderedIds required' }, 400);
+  }
+  await reorderCardRanks(c.env.DB, body.accountId, body.orderedIds);
+  const ranks = await getCardRanks(c.env.DB, body.accountId);
+  return c.json({ success: true, data: ranks });
 });
 
 export { cardRanks };

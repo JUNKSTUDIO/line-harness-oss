@@ -144,6 +144,7 @@ export interface CardSettings {
   shop_longitude: number | null
   shop_address: string | null
   weather_check_interval_minutes: number
+  weather_check_anchor_time: string
   weather_last_checked_at?: string | null
   created_at?: string
   updated_at?: string
@@ -509,6 +510,8 @@ export const api = {
       fetchApi<ApiResponse<CardRank>>(`/api/card-ranks/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
     delete: (id: string) =>
       fetchApi<ApiResponse<null>>(`/api/card-ranks/${id}`, { method: 'DELETE' }),
+    reorder: (accountId: string, orderedIds: string[]) =>
+      fetchApi<ApiResponse<CardRank[]>>('/api/card-ranks/reorder', { method: 'POST', body: JSON.stringify({ accountId, orderedIds }) }),
   },
 
   pointMultiplierRules: {

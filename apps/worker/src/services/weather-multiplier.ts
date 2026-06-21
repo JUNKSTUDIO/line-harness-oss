@@ -2,6 +2,12 @@
 // Open-Meteo (https://open-meteo.com/) — APIキー不要・商用利用可の無料天気API。
 // 5分ごとのcron tickに乗せるが、外部API呼び出し自体は店舗ごとに card_settings.weather_check_interval_minutes
 // (既存の insight-fetcher と同じ「self-throttled」パターン。管理画面で間隔を設定可能)。
+//
+// 「何分ごと」の基準点 (起点) は weather_check_anchor_time (JST "HH:MM"、既定 "00:00")。
+// 単純な「前回チェックからN分経過したか」だと、起点が「サーバが最初にチェックした
+// 偶然の時刻」になり日によって少しずつズレてしまう。代わりに、起点時刻からの経過時間を
+// interval_minutes でバケット分割し、前回と今回でバケットが変わったかどうかで判定する
+// ことで、毎日決まった時刻 (例: 06:00, 1440分=1日間隔なら毎日06:00丁度) に固定される。
 
 import {
   getCardSettingsWithWeatherLocation,
@@ -9,6 +15,16 @@ import {
   getPointMultiplierRules,
   setMultiplierRuleActive,
 } from '@line-crm/db';
+
+const JST_OFFSET_MS = 9 * 60 * 60_000;
+
+/** anchorTime (JST "HH:MM") を起点に、date が何個目の interval バケットに入るかを返す。 */
+function weatherCheckBucket(date: Date, anchorTime: string, intervalMinutes: number): number {
+  const [anchorH, anchorM] = anchorTime.split(':').map(Number);
+  const anchorMsOfDay = ((anchorH || 0) * 60 + (anchorM || 0)) * 60_000;
+  const jstMs = date.getTime() + JST_OFFSET_MS;
+  return Math.floor((jstMs - anchorMsOfDay) / (intervalMinutes * 60_000));
+}
 
 interface OpenMeteoCurrentResponse {
   current?: { rain?: number; snowfall?: number };
@@ -35,10 +51,15 @@ export async function processWeatherMultiplierToggles(db: D1Database, now: Date)
   let checked = 0;
 
   for (const settings of targets) {
-    const lastChecked = settings.weather_last_checked_at ? new Date(settings.weather_last_checked_at).getTime() : 0;
-    const intervalMs = (settings.weather_check_interval_minutes ?? 30) * 60_000;
-    if (now.getTime() - lastChecked < intervalMs) continue;
     if (settings.shop_latitude == null || settings.shop_longitude == null) continue;
+
+    const interval = settings.weather_check_interval_minutes ?? 30;
+    const anchor = settings.weather_check_anchor_time || '00:00';
+    const currentBucket = weatherCheckBucket(now, anchor, interval);
+    const lastBucket = settings.weather_last_checked_at
+      ? weatherCheckBucket(new Date(settings.weather_last_checked_at), anchor, interval)
+      : null;
+    if (lastBucket !== null && currentBucket <= lastBucket) continue;
 
     const conditions = await fetchCurrentConditions(settings.shop_latitude, settings.shop_longitude);
     if (!conditions) continue;

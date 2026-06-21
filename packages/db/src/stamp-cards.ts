@@ -18,6 +18,7 @@ export interface CardSettingsRow {
   shop_longitude: number | null;
   shop_address: string | null;
   weather_check_interval_minutes: number;
+  weather_check_anchor_time: string;
   weather_last_checked_at: string | null;
   created_at: string;
   updated_at: string;
@@ -89,8 +90,8 @@ export async function upsertCardSettings(
            line_account_id, stamp_rule_type, amount_per_stamp, signup_bonus_stamps,
            rank_enabled, flat_goal_stamps, card_expiry_months, default_coupon_validity_days,
            reminder_days_before, reservation_url, stamp_image_url, shop_latitude, shop_longitude,
-           shop_address, weather_check_interval_minutes, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           shop_address, weather_check_interval_minutes, weather_check_anchor_time, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         lineAccountId,
@@ -108,6 +109,7 @@ export async function upsertCardSettings(
         input.shop_longitude ?? null,
         input.shop_address ?? null,
         input.weather_check_interval_minutes ?? 30,
+        input.weather_check_anchor_time ?? '00:00',
         now,
         now,
       )
@@ -159,12 +161,34 @@ export async function getCardRankById(db: D1Database, id: string): Promise<CardR
   return db.prepare(`SELECT * FROM card_ranks WHERE id = ?`).bind(id).first<CardRankRow>();
 }
 
-/** 次のランク (rank_order + 1) を取得。最終ランクなら null。 */
+/**
+ * 次のランク (現在より rank_order が大きいもののうち最小) を取得。最終ランクなら null。
+ * "rank_order + 1 と完全一致" ではなく ">" + 最小値で探す — 削除や並び替えで欠番があっても
+ * 正しく次のランクを見つけられるようにするため。
+ */
 export async function getNextCardRank(db: D1Database, lineAccountId: string, currentRankOrder: number): Promise<CardRankRow | null> {
   return db
-    .prepare(`SELECT * FROM card_ranks WHERE line_account_id = ? AND rank_order = ? `)
-    .bind(lineAccountId, currentRankOrder + 1)
+    .prepare(`SELECT * FROM card_ranks WHERE line_account_id = ? AND rank_order > ? ORDER BY rank_order ASC LIMIT 1`)
+    .bind(lineAccountId, currentRankOrder)
     .first<CardRankRow>();
+}
+
+/**
+ * ランクの並び順を入れ替える。orderedIds は新しい並び順でのID配列 (先頭が rank_order=0)。
+ * UNIQUE(line_account_id, rank_order) との衝突を避けるため、一旦すべて負の仮値に退避してから
+ * 最終的な正の値を書き込む2段階更新にしている (同一トランザクション内なら単純な単発UPDATEの
+ * 入れ替えでも衝突しうるため)。
+ */
+export async function reorderCardRanks(db: D1Database, lineAccountId: string, orderedIds: string[]): Promise<void> {
+  const statements = [
+    ...orderedIds.map((id, index) =>
+      db.prepare(`UPDATE card_ranks SET rank_order = ? WHERE id = ? AND line_account_id = ?`).bind(-(index + 1), id, lineAccountId),
+    ),
+    ...orderedIds.map((id, index) =>
+      db.prepare(`UPDATE card_ranks SET rank_order = ?, updated_at = ? WHERE id = ? AND line_account_id = ?`).bind(index, jstNow(), id, lineAccountId),
+    ),
+  ];
+  await db.batch(statements);
 }
 
 export interface CreateCardRankInput {

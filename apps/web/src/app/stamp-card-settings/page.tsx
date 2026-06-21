@@ -22,6 +22,7 @@ const EMPTY: CardSettings = {
   shop_longitude: null,
   shop_address: null,
   weather_check_interval_minutes: 30,
+  weather_check_anchor_time: '00:00',
 }
 
 export default function StampCardSettingsPage() {
@@ -90,6 +91,7 @@ export default function StampCardSettingsPage() {
         reservation_url: form.reservation_url,
         stamp_image_url: form.stamp_image_url,
         weather_check_interval_minutes: form.weather_check_interval_minutes,
+        weather_check_anchor_time: form.weather_check_anchor_time,
       })
       if (res.success) {
         setForm(res.data)
@@ -278,6 +280,17 @@ export default function StampCardSettingsPage() {
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
             />
             <p className="text-xs text-gray-400 mt-1">例: 60 = 1時間ごと、360 = 6時間ごと、1440 = 1日ごと</p>
+          </Field>
+          <Field label="基準時刻">
+            <input
+              type="time"
+              value={form.weather_check_anchor_time}
+              onChange={(e) => set('weather_check_anchor_time', e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            />
+            <p className="text-xs text-gray-400 mt-1">
+              チェックのタイミングはこの時刻を起点に区切られます。例: 間隔1440分（1日ごと）+ 基準時刻06:00 → 毎日6:00を過ぎたタイミングで1回チェック。間隔60分（1時間ごと）なら毎時この時刻の分から区切られます（既定00:00 = 0分/正時ごと）。
+            </p>
           </Field>
         </Section>
 

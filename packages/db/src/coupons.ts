@@ -32,6 +32,7 @@ export interface UserCouponRow {
   rescue_count: number;
   last_rescued_at: string | null;
   expiry_reminder_sent_at: string | null;
+  coupon_name_at_issuance: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -92,6 +93,12 @@ export async function updateCouponTemplate(
   return getCouponTemplateById(db, id);
 }
 
+/** テンプレート削除前のガード用 — 既発行のクーポン件数を返す。 */
+export async function countIssuedCouponsForTemplate(db: D1Database, templateId: string): Promise<number> {
+  const row = await db.prepare(`SELECT COUNT(*) as c FROM user_coupons WHERE coupon_template_id = ?`).bind(templateId).first<{ c: number }>();
+  return row?.c ?? 0;
+}
+
 export async function deleteCouponTemplate(db: D1Database, id: string): Promise<void> {
   await db.prepare(`DELETE FROM coupon_templates WHERE id = ?`).bind(id).run();
 }
@@ -135,10 +142,10 @@ export async function issueCoupon(
     .prepare(
       `INSERT INTO user_coupons (
          id, friend_id, coupon_template_id, line_account_id, issued_via, source_user_card_id,
-         issued_at, expires_at, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         issued_at, expires_at, coupon_name_at_issuance, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(id, params.friendId, params.couponTemplateId, params.lineAccountId, params.issuedVia, params.sourceUserCardId ?? null, now, expiresAt, now, now)
+    .bind(id, params.friendId, params.couponTemplateId, params.lineAccountId, params.issuedVia, params.sourceUserCardId ?? null, now, expiresAt, template.name, now, now)
     .run();
 
   return (await getUserCouponById(db, id))!;
@@ -233,7 +240,7 @@ export async function findExpiredCouponHolders(
 ): Promise<Array<UserCouponRow & { display_name: string | null; line_user_id: string; coupon_name: string }>> {
   const result = await db
     .prepare(
-      `SELECT uc.*, f.display_name, f.line_user_id, ct.name AS coupon_name
+      `SELECT uc.*, f.display_name, f.line_user_id, COALESCE(uc.coupon_name_at_issuance, ct.name) AS coupon_name
          FROM user_coupons uc
          INNER JOIN friends f ON f.id = uc.friend_id
          INNER JOIN coupon_templates ct ON ct.id = uc.coupon_template_id
@@ -253,7 +260,7 @@ export async function getCouponsDueForExpiryReminder(
 ): Promise<Array<UserCouponRow & { line_user_id: string; channel_access_token: string; reservation_url: string | null; coupon_name: string; reminder_days_before: number }>> {
   const result = await db
     .prepare(
-      `SELECT uc.*, f.line_user_id, la.channel_access_token, cs.reservation_url, ct.name AS coupon_name, cs.reminder_days_before
+      `SELECT uc.*, f.line_user_id, la.channel_access_token, cs.reservation_url, COALESCE(uc.coupon_name_at_issuance, ct.name) AS coupon_name, cs.reminder_days_before
          FROM user_coupons uc
          INNER JOIN friends f ON f.id = uc.friend_id
          INNER JOIN line_accounts la ON la.id = uc.line_account_id

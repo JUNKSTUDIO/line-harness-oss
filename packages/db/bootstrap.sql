@@ -252,7 +252,7 @@ CREATE TABLE card_settings (
   reminder_days_before        INTEGER NOT NULL DEFAULT 3,      -- 期限前リマインドのタイミング (残り○日)
   reservation_url             TEXT,                            -- 外部予約システムURL (NULLなら社内LIFF予約に誘導)
   created_at                 TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
-  updated_at                 TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')), stamp_image_url TEXT, shop_latitude REAL, shop_longitude REAL, weather_last_checked_at TEXT, shop_address TEXT, weather_check_interval_minutes INTEGER NOT NULL DEFAULT 30,
+  updated_at                 TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')), stamp_image_url TEXT, shop_latitude REAL, shop_longitude REAL, weather_last_checked_at TEXT, shop_address TEXT, weather_check_interval_minutes INTEGER NOT NULL DEFAULT 30, weather_check_anchor_time TEXT NOT NULL DEFAULT '00:00',
   CHECK (stamp_rule_type != 'per_amount' OR amount_per_stamp IS NOT NULL)
 );
 
@@ -915,7 +915,7 @@ CREATE TABLE user_coupons (
   expiry_reminder_sent_at TEXT,                          -- 期限前リマインド済みマーカー
   created_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
   updated_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
-);
+, coupon_name_at_issuance TEXT);
 
 CREATE TABLE users (
   id           TEXT PRIMARY KEY,

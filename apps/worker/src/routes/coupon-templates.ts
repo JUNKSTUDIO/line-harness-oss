@@ -6,6 +6,7 @@ import {
   createCouponTemplate,
   updateCouponTemplate,
   deleteCouponTemplate,
+  countIssuedCouponsForTemplate,
   findExpiredCouponHolders,
   rescueCoupon,
   getLineAccountById,
@@ -56,7 +57,15 @@ couponTemplates.patch('/api/coupon-templates/:id', async (c) => {
 });
 
 // DELETE /api/coupon-templates/:id
+// user_coupons.coupon_template_id は ON DELETE CASCADE のため、既発行のクーポンがある
+// テンプレートを無条件に削除すると、お客様が既に持っている/使用済みのクーポンまで
+// 一緒に消えてしまう。ここで件数を確認し、1件でもあれば削除を拒否する
+// (管理画面側は is_active=false への「無効化」を代替手段として提示する)。
 couponTemplates.delete('/api/coupon-templates/:id', async (c) => {
+  const issuedCount = await countIssuedCouponsForTemplate(c.env.DB, c.req.param('id'));
+  if (issuedCount > 0) {
+    return c.json({ success: false, error: 'has_issued_coupons', issuedCount }, 409);
+  }
   await deleteCouponTemplate(c.env.DB, c.req.param('id'));
   return c.json({ success: true, data: null });
 });

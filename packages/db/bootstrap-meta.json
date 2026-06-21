@@ -54,7 +54,9 @@
     "046_stamp_card_coupon_system.sql",
     "047_card_settings_stamp_image.sql",
     "048_card_settings_weather_location.sql",
-    "049_card_settings_address_and_operators.sql"
+    "049_card_settings_address_and_operators.sql",
+    "050_user_coupons_name_snapshot.sql",
+    "051_card_settings_weather_anchor.sql"
   ],
-  "migrationCount": 55
+  "migrationCount": 57
 }
