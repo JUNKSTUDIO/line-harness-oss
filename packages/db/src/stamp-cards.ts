@@ -16,6 +16,7 @@ export interface CardSettingsRow {
   card_expiry_penalty_type: 'none' | 'reset_to_start' | 'drop_to_rank' | 'drop_one_level' | 'reissue';
   card_expiry_penalty_target_rank_id: string | null;
   stamp_angle_enabled: number;
+  multiplier_combination_mode: 'highest_priority_only' | 'multiply_all' | 'sum_all';
   default_coupon_validity_days: number;
   reminder_days_before: number;
   reservation_url: string | null;
@@ -108,11 +109,11 @@ export async function upsertCardSettings(
            line_account_id, stamp_rule_type, amount_per_stamp, signup_bonus_stamps,
            rank_enabled, flat_goal_stamps, card_expiry_months, card_expiry_mode, card_expiry_days_from_issue,
            card_expiry_self_extension_enabled, card_expiry_penalty_type, card_expiry_penalty_target_rank_id,
-           stamp_angle_enabled, default_coupon_validity_days,
+           stamp_angle_enabled, multiplier_combination_mode, default_coupon_validity_days,
            reminder_days_before, reservation_url, stamp_image_url, shop_latitude, shop_longitude,
            shop_address, weather_check_interval_minutes, weather_check_anchor_time, rank_badge_layout,
            created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         lineAccountId,
@@ -128,6 +129,7 @@ export async function upsertCardSettings(
         input.card_expiry_penalty_type ?? 'none',
         input.card_expiry_penalty_target_rank_id ?? null,
         input.stamp_angle_enabled ?? 1,
+        input.multiplier_combination_mode ?? 'highest_priority_only',
         input.default_coupon_validity_days ?? 30,
         input.reminder_days_before ?? 3,
         input.reservation_url ?? null,
@@ -433,7 +435,19 @@ export async function setMultiplierRuleActive(db: D1Database, id: string, isActi
  */
 const JST_OFFSET_MS = 9 * 60 * 60_000;
 
-export function resolveActiveMultiplier(rules: PointMultiplierRuleRow[], now: Date): { multiplier: number; ruleId: string | null } {
+export interface MultiplierResolution {
+  multiplier: number;
+  /** 単一ルールのみが寄与した場合に限りそのIDを返す (複数合算時はstamp_logsに単一FKで記録できないためnull)。 */
+  ruleId: string | null;
+  /** 現在マッチしている全ルール (表示用)。combinationMode による計算前の生データ。 */
+  appliedRules: Array<{ id: string; name: string; multiplier: number }>;
+}
+
+export function resolveActiveMultiplier(
+  rules: PointMultiplierRuleRow[],
+  now: Date,
+  combinationMode: CardSettingsRow['multiplier_combination_mode'] = 'highest_priority_only',
+): MultiplierResolution {
   // Workers の実行時刻はUTC基準。曜日/日付の判定はJSTの暦日で行う必要がある。
   const jstNowDate = new Date(now.getTime() + JST_OFFSET_MS);
   const matching = rules.filter((rule) => {
@@ -459,10 +473,27 @@ export function resolveActiveMultiplier(rules: PointMultiplierRuleRow[], now: Da
         return false;
     }
   });
-  if (matching.length === 0) return { multiplier: 1, ruleId: null };
-  // priority DESC で取得済みのため先頭が最優先
+  if (matching.length === 0) return { multiplier: 1, ruleId: null, appliedRules: [] };
+
+  const appliedRules = matching.map((r) => ({ id: r.id, name: r.name, multiplier: r.multiplier }));
+
+  // 単一ルールのみがマッチしている場合は、合算モードに関わらず結果は同じなので単純に返す。
+  if (matching.length === 1) {
+    return { multiplier: matching[0].multiplier, ruleId: matching[0].id, appliedRules };
+  }
+
+  if (combinationMode === 'multiply_all') {
+    const multiplier = matching.reduce((acc, r) => acc * r.multiplier, 1);
+    return { multiplier, ruleId: null, appliedRules };
+  }
+  if (combinationMode === 'sum_all') {
+    // (base*m1) + (base*m2) + ... = base * (m1+m2+...) なので、倍率同士の合計でよい。
+    const multiplier = matching.reduce((acc, r) => acc + r.multiplier, 0);
+    return { multiplier, ruleId: null, appliedRules };
+  }
+  // highest_priority_only (既定): priority DESC で取得済みのため先頭が最優先。
   const top = matching[0];
-  return { multiplier: top.multiplier, ruleId: top.id };
+  return { multiplier: top.multiplier, ruleId: top.id, appliedRules };
 }
 
 // --- user_cards ---
@@ -648,7 +679,7 @@ export async function grantStamp(
   }
 
   const rules = await getPointMultiplierRules(db, params.lineAccountId);
-  const { multiplier, ruleId } = resolveActiveMultiplier(rules, now);
+  const { multiplier, ruleId } = resolveActiveMultiplier(rules, now, settings?.multiplier_combination_mode);
   const finalPoints = Math.round(basePoints * multiplier * 2) / 2; // 0.5刻みに丸める
 
   await db

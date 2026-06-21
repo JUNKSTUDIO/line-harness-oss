@@ -142,6 +142,7 @@ export interface CardSettings {
   card_expiry_penalty_type: 'none' | 'reset_to_start' | 'drop_to_rank' | 'drop_one_level' | 'reissue'
   card_expiry_penalty_target_rank_id: string | null
   stamp_angle_enabled: number
+  multiplier_combination_mode: 'highest_priority_only' | 'multiply_all' | 'sum_all'
   default_coupon_validity_days: number
   reminder_days_before: number
   reservation_url: string | null

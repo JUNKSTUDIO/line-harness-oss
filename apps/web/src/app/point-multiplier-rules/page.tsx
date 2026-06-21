@@ -2,10 +2,16 @@
 
 import { useEffect, useState } from 'react'
 import Header from '@/components/layout/header'
-import { api, type PointMultiplierRule } from '@/lib/api'
+import { api, type PointMultiplierRule, type CardSettings } from '@/lib/api'
 import { useAccount } from '@/contexts/account-context'
 
 const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土']
+
+const COMBINATION_MODE_LABELS: Record<CardSettings['multiplier_combination_mode'], string> = {
+  highest_priority_only: '優先度が最も高い1件のみ適用する',
+  multiply_all: '同時にマッチした全ルールの倍率を掛け合わせる（例: 2倍 × 1.5倍 = 3倍）',
+  sum_all: '同時にマッチした全ルールの倍率を足し合わせる（例: 2倍 + 1.5倍 = 3.5倍）',
+}
 
 const CONDITION_LABELS: Record<PointMultiplierRule['condition_type'], string> = {
   manual: '手動 (このスイッチがそのままON/OFF)',
@@ -168,17 +174,34 @@ export default function PointMultiplierRulesPage() {
   const [busy, setBusy] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<RuleForm>(EMPTY_FORM)
+  const [combinationMode, setCombinationMode] = useState<CardSettings['multiplier_combination_mode']>('highest_priority_only')
+  const [savingMode, setSavingMode] = useState(false)
 
   async function load() {
     if (!selectedAccount) return
     setLoading(true)
-    const res = await api.pointMultiplierRules.list(selectedAccount.id)
-    if (res.success) setRules(res.data)
-    else setError(res.error)
+    const [rulesRes, settingsRes] = await Promise.all([
+      api.pointMultiplierRules.list(selectedAccount.id),
+      api.cardSettings.get(selectedAccount.id),
+    ])
+    if (rulesRes.success) setRules(rulesRes.data)
+    else setError(rulesRes.error)
+    if (settingsRes.success) setCombinationMode(settingsRes.data.multiplier_combination_mode)
     setLoading(false)
   }
 
   useEffect(() => { load() }, [selectedAccount]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function saveCombinationMode(mode: CardSettings['multiplier_combination_mode']) {
+    if (!selectedAccount) return
+    setCombinationMode(mode)
+    setSavingMode(true)
+    try {
+      await api.cardSettings.update(selectedAccount.id, { multiplier_combination_mode: mode })
+    } finally {
+      setSavingMode(false)
+    }
+  }
 
   async function toggle(rule: PointMultiplierRule) {
     const res = await api.pointMultiplierRules.toggle(rule.id, rule.is_active === 0)
@@ -239,9 +262,22 @@ export default function PointMultiplierRulesPage() {
 
   return (
     <div>
-      <Header title="ポイント倍率ルール" description="雨の日2倍・ハッピーアワーなど、条件付きでスタンプ付与数を倍率するルールを管理します。複数同時に当たる場合は優先度が最大の1件のみ適用されます。" />
+      <Header title="ポイント倍率ルール" description="雨の日2倍・ハッピーアワーなど、条件付きでスタンプ付与数を倍率するルールを管理します。複数同時にマッチした場合の扱いは下の「複数ルールの合算方式」で設定します。" />
       <div className="p-6 max-w-3xl space-y-6">
         {error && <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg text-sm">{error}</div>}
+
+        <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-2">
+          <h2 className="text-sm font-bold text-gray-900">複数ルールの合算方式</h2>
+          <p className="text-xs text-gray-500">同じ瞬間に複数のルールがマッチした場合 (例: 雨の日でかつテスト期間中) の計算方法です。</p>
+          <select
+            value={combinationMode}
+            onChange={(e) => saveCombinationMode(e.target.value as CardSettings['multiplier_combination_mode'])}
+            disabled={savingMode}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          >
+            {Object.entries(COMBINATION_MODE_LABELS).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+          </select>
+        </div>
 
         <div className="space-y-2">
           {rules.length === 0 && (

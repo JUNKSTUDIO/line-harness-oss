@@ -264,7 +264,9 @@ CREATE TABLE card_settings (
   created_at                 TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
   updated_at                 TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')), stamp_image_url TEXT, shop_latitude REAL, shop_longitude REAL, weather_last_checked_at TEXT, shop_address TEXT, weather_check_interval_minutes INTEGER NOT NULL DEFAULT 30, weather_check_anchor_time TEXT NOT NULL DEFAULT '00:00', rank_badge_layout TEXT NOT NULL DEFAULT 'split' CHECK (rank_badge_layout IN ('split', 'background')), card_expiry_mode TEXT NOT NULL DEFAULT 'since_last_stamp' CHECK (card_expiry_mode IN ('since_last_stamp', 'since_issue')), card_expiry_days_from_issue INTEGER, stamp_angle_enabled INTEGER NOT NULL DEFAULT 1, card_expiry_self_extension_enabled INTEGER NOT NULL DEFAULT 1, card_expiry_penalty_type TEXT NOT NULL DEFAULT 'none' CHECK (
   card_expiry_penalty_type IN ('none', 'reset_to_start', 'drop_to_rank', 'drop_one_level', 'reissue')
-), card_expiry_penalty_target_rank_id TEXT REFERENCES card_ranks(id) ON DELETE SET NULL,
+), card_expiry_penalty_target_rank_id TEXT REFERENCES card_ranks(id) ON DELETE SET NULL, multiplier_combination_mode TEXT NOT NULL DEFAULT 'highest_priority_only' CHECK (
+  multiplier_combination_mode IN ('highest_priority_only', 'multiply_all', 'sum_all')
+),
   CHECK (stamp_rule_type != 'per_amount' OR amount_per_stamp IS NOT NULL)
 );
 

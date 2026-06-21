@@ -196,6 +196,40 @@ function MilestonePopup({ milestone, onClose }: { milestone: MilestoneInfo; onCl
   );
 }
 
+const COUPON_STATUS_LABEL: Record<CouponItem['status'], string> = {
+  unused: '未使用', used: '使用済み', expired: '期限切れ',
+};
+
+interface CouponDetailInfo {
+  name: string;
+  description: string | null;
+  imageUrl: string | null;
+  status?: CouponItem['status'];
+  expiresAt: string;
+}
+
+// 保有クーポンをタップした際の詳細ポップアップ。お客様のクーポン一覧・スタッフのスタンプ付与確認画面の両方で使う。
+function CouponDetailPopup({ coupon, onClose }: { coupon: CouponDetailInfo; onClose: () => void }) {
+  return (
+    <div className="sc-modal-overlay" onClick={onClose}>
+      <div className="sc-modal-card" onClick={(e) => e.stopPropagation()}>
+        {coupon.imageUrl && (
+          <img src={coupon.imageUrl} alt="" className="sc-modal-image" />
+        )}
+        <div className="p-4">
+          {coupon.status && <span className="sc-badge">{COUPON_STATUS_LABEL[coupon.status]}</span>}
+          <div className="text-base font-bold text-gray-900 mt-1">{coupon.name}</div>
+          {coupon.description && (
+            <p className="text-xs text-gray-600 mt-2 whitespace-pre-wrap">{coupon.description}</p>
+          )}
+          <div className="text-xs text-gray-500 mt-3">有効期限: {formatJpDate(coupon.expiresAt)} まで</div>
+          <button onClick={onClose} className="sc-secondary-btn mt-4">閉じる</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // 紙のショップカードを模した「マス目にスタンプがポンと押される」見た目。
 // goal が無い (フリー集計) 店舗ではマス目を描けないので数字表示にフォールバックする。
 // 0.5刻みの半分スタンプ (雨の日1.5倍等) は、該当マスの左半分だけ画像/印を見せて表現する。
@@ -415,7 +449,9 @@ interface GrantPreview {
   friend: { displayName: string | null; pictureUrl: string | null };
   card: { stampCount: number; currentRankName: string | null };
   stampRuleType: 'per_visit' | 'per_amount';
-  coupons: Array<{ id: string; name: string; expiresAt: string }>;
+  amountPerStamp: number | null;
+  activeMultiplier: { multiplier: number; appliedRuleNames: string[] };
+  coupons: Array<{ id: string; name: string; description: string | null; imageUrl: string | null; expiresAt: string }>;
   stampLogs: Array<{ id: string; source: string; finalPoints: number; multiplierApplied: number; createdAt: string }>;
   couponHistory: Array<{ id: string; name: string; status: 'unused' | 'used' | 'expired'; issuedAt: string; expiresAt: string; usedAt: string | null }>;
 }
@@ -505,6 +541,7 @@ function GrantScreen({ ctx, token }: { ctx: StampCardContext; token: string }) {
   const [busy, setBusy] = useState(false);
   const [granted, setGranted] = useState<{ stampCount: number; rankedUp: boolean; issuedCoupon: boolean } | null>(null);
   const [redeemedIds, setRedeemedIds] = useState<Set<string>>(new Set());
+  const [activeCoupon, setActiveCoupon] = useState<GrantPreview['coupons'][number] | null>(null);
 
   useEffect(() => {
     fetchJson<{ success: boolean; data: GrantPreview }>(
@@ -555,6 +592,12 @@ function GrantScreen({ ctx, token }: { ctx: StampCardContext; token: string }) {
   if (error && !preview) return <div className="px-4 py-6"><div className="sc-card text-center text-sm text-gray-600">{error}</div></div>;
   if (!preview) return <Spinner />;
 
+  // 実際の付与計算 (grantStamp) と同じ式で、リアルタイムに「合計付与ポイント」を見せる。
+  const projectedBasePoints = preview.stampRuleType === 'per_amount'
+    ? Math.floor(amount / (preview.amountPerStamp ?? 1000))
+    : points;
+  const projectedFinalPoints = Math.round(projectedBasePoints * preview.activeMultiplier.multiplier * 2) / 2;
+
   return (
     <div className="px-4 py-4 pb-10 sc-fade-in">
       <div className="sc-card text-center">
@@ -574,6 +617,12 @@ function GrantScreen({ ctx, token }: { ctx: StampCardContext; token: string }) {
         </div>
       ) : (
         <div className="sc-card mt-3">
+          {preview.activeMultiplier.multiplier !== 1 && (
+            <div className="mb-3 text-xs rounded-lg bg-amber-50 text-amber-800 px-3 py-2">
+              現在適用中のポイント倍率: ×{preview.activeMultiplier.multiplier}
+              {preview.activeMultiplier.appliedRuleNames.length > 0 && `（${preview.activeMultiplier.appliedRuleNames.join(' + ')}）`}
+            </div>
+          )}
           {preview.stampRuleType === 'per_amount' && (
             <div className="mb-3">
               <label className="block text-xs text-gray-600 mb-1">利用金額（円）</label>
@@ -597,9 +646,16 @@ function GrantScreen({ ctx, token }: { ctx: StampCardContext; token: string }) {
                 onChange={(e) => setPoints(Number(e.target.value))}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
               />
-              <p className="text-xs text-gray-400 mt-1">雨の日倍率などが有効な場合は、ここで指定した数にさらに倍率がかかります。</p>
             </div>
           )}
+          <div className="text-xs text-gray-500 mb-3">
+            合計付与ポイント: <span className="font-bold text-gray-900">{projectedFinalPoints}pt</span>
+            {preview.activeMultiplier.multiplier !== 1 && (
+              <span className="text-gray-400">
+                {' '}（{preview.stampRuleType === 'per_amount' ? projectedBasePoints : points} × {preview.activeMultiplier.multiplier}）
+              </span>
+            )}
+          </div>
           {error && <div className="text-xs text-red-600 mb-2">{error}</div>}
           <button onClick={grant} disabled={busy} className="sc-primary-btn">
             {busy ? '処理中...' : 'スタンプを付与する'}
@@ -609,15 +665,17 @@ function GrantScreen({ ctx, token }: { ctx: StampCardContext; token: string }) {
 
       {preview.coupons.length > 0 && (
         <div className="sc-card mt-3">
-          <div className="text-xs text-gray-500 mb-2">保有クーポン</div>
+          <div className="text-xs text-gray-500 mb-2">保有クーポン（タップで詳細表示）</div>
           <ul className="space-y-2">
             {preview.coupons.map((cp) => (
               <li key={cp.id} className="flex items-center justify-between gap-2">
-                <span className="text-xs text-gray-700 truncate">{cp.name}<span className="text-gray-400">（{formatJpDate(cp.expiresAt)}まで）</span></span>
+                <button onClick={() => setActiveCoupon(cp)} className="text-xs text-gray-700 truncate underline text-left">
+                  {cp.name}<span className="text-gray-400">（{formatJpDate(cp.expiresAt)}まで）</span>
+                </button>
                 {redeemedIds.has(cp.id) ? (
-                  <span className="text-xs text-emerald-700">使用済みにしました✓</span>
+                  <span className="text-xs text-emerald-700 shrink-0">使用済みにしました✓</span>
                 ) : (
-                  <button onClick={() => redeem(cp.id)} className="text-xs rounded-md bg-emerald-600 px-3 py-1.5 text-white">
+                  <button onClick={() => redeem(cp.id)} className="text-xs rounded-md bg-emerald-600 px-3 py-1.5 text-white shrink-0">
                     使用済みにする
                   </button>
                 )}
@@ -628,6 +686,13 @@ function GrantScreen({ ctx, token }: { ctx: StampCardContext; token: string }) {
       )}
 
       <HistorySection preview={preview} />
+
+      {activeCoupon && (
+        <CouponDetailPopup
+          coupon={{ name: activeCoupon.name, description: activeCoupon.description, imageUrl: activeCoupon.imageUrl, expiresAt: activeCoupon.expiresAt }}
+          onClose={() => setActiveCoupon(null)}
+        />
+      )}
     </div>
   );
 }
@@ -672,13 +737,10 @@ function RegisterOperatorScreen({ ctx, token }: { ctx: StampCardContext; token: 
   );
 }
 
-const COUPON_STATUS_LABEL: Record<CouponItem['status'], string> = {
-  unused: '未使用', used: '使用済み', expired: '期限切れ',
-};
-
 function CouponListScreen({ ctx, onBack }: { ctx: StampCardContext; onBack: () => void }) {
   const [items, setItems] = useState<CouponItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeCoupon, setActiveCoupon] = useState<CouponItem | null>(null);
 
   useEffect(() => {
     apiGet<{ items: CouponItem[] }>('/api/liff/coupons/me', ctx)
@@ -694,28 +756,32 @@ function CouponListScreen({ ctx, onBack }: { ctx: StampCardContext; onBack: () =
       ) : (
         <ul className="space-y-2 mt-3">
           {items.map((coupon) => (
-            <li key={coupon.id} className="sc-card !p-0 overflow-hidden">
-              <div className="flex">
-                {coupon.imageUrl ? (
-                  <img src={coupon.imageUrl} alt="" className="w-20 h-20 object-cover shrink-0" />
-                ) : (
-                  <div className="w-20 h-20 bg-gradient-to-br from-green-100 to-green-200 shrink-0 flex items-center justify-center text-2xl">🎟️</div>
-                )}
-                <div className="flex-1 min-w-0 p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="font-semibold text-sm text-gray-900 line-clamp-2">{coupon.name}</div>
-                    <span className="sc-badge shrink-0">{COUPON_STATUS_LABEL[coupon.status]}</span>
-                  </div>
-                  {coupon.description && (
-                    <p className="text-xs text-gray-600 mt-1 line-clamp-2">{coupon.description}</p>
+            <li key={coupon.id}>
+              <button onClick={() => setActiveCoupon(coupon)} className="sc-card !p-0 overflow-hidden w-full text-left block">
+                <div className="flex">
+                  {coupon.imageUrl ? (
+                    <img src={coupon.imageUrl} alt="" className="w-20 h-20 object-cover shrink-0" />
+                  ) : (
+                    <div className="w-20 h-20 bg-gradient-to-br from-green-100 to-green-200 shrink-0 flex items-center justify-center text-2xl">🎟️</div>
                   )}
-                  <div className="text-xs text-gray-400 mt-1">{formatJpDate(coupon.expiresAt)} まで</div>
+                  <div className="flex-1 min-w-0 p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="font-semibold text-sm text-gray-900 line-clamp-2">{coupon.name}</div>
+                      <span className="sc-badge shrink-0">{COUPON_STATUS_LABEL[coupon.status]}</span>
+                    </div>
+                    {coupon.description && (
+                      <p className="text-xs text-gray-600 mt-1 line-clamp-2">{coupon.description}</p>
+                    )}
+                    <div className="text-xs text-gray-400 mt-1">{formatJpDate(coupon.expiresAt)} まで</div>
+                  </div>
                 </div>
-              </div>
+              </button>
             </li>
           ))}
         </ul>
       )}
+
+      {activeCoupon && <CouponDetailPopup coupon={activeCoupon} onClose={() => setActiveCoupon(null)} />}
     </div>
   );
 }

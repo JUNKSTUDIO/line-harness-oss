@@ -30,6 +30,7 @@ cardSettings.get('/api/card-settings', async (c) => {
       card_expiry_penalty_type: 'none',
       card_expiry_penalty_target_rank_id: null,
       stamp_angle_enabled: 1,
+      multiplier_combination_mode: 'highest_priority_only',
       default_coupon_validity_days: 30,
       reminder_days_before: 3,
       reservation_url: null,

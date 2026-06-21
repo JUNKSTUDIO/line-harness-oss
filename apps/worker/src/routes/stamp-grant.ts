@@ -23,6 +23,8 @@ import {
   removeGrantOperator,
   recordMilestoneIssued,
   getStampLogsForUserCard,
+  getPointMultiplierRules,
+  resolveActiveMultiplier,
 } from '@line-crm/db';
 import { signGrantToken, verifyGrantToken, signOperatorRegistrationToken, verifyOperatorRegistrationToken } from '../lib/qr-token.js';
 import { verifyCallerLineUserId, verifyCallerProfile } from '../services/liff-auth.js';
@@ -102,13 +104,24 @@ stampGrant.get('/api/liff/stamp-cards/grant-preview', async (c) => {
   const currentRank = settings?.rank_enabled ? ranks.find((r) => r.id === card.current_rank_id) ?? null : null;
   const stampLogs = await getStampLogsForUserCard(c.env.DB, card.id, 20);
 
+  // 現時点で適用されているポイント倍率ルール (スタッフ画面に表示し、入力ポイント数のリアルタイム計算に使う)。
+  const rules = await getPointMultiplierRules(c.env.DB, payload.accountId);
+  const multiplierResolution = resolveActiveMultiplier(rules, new Date(), settings?.multiplier_combination_mode);
+
   return c.json({
     success: true,
     data: {
       friend: { displayName: friend.display_name, pictureUrl: friend.picture_url },
       card: { stampCount: card.stamp_count, currentRankName: currentRank?.name ?? null },
       stampRuleType: settings?.stamp_rule_type ?? 'per_visit',
-      coupons: coupons.map((cp) => ({ id: cp.id, name: cp.display_name, expiresAt: cp.expires_at })),
+      amountPerStamp: settings?.amount_per_stamp ?? null,
+      activeMultiplier: {
+        multiplier: multiplierResolution.multiplier,
+        appliedRuleNames: multiplierResolution.appliedRules.map((r) => r.name),
+      },
+      coupons: coupons.map((cp) => ({
+        id: cp.id, name: cp.display_name, description: cp.display_description, imageUrl: cp.display_image_url, expiresAt: cp.expires_at,
+      })),
       // スタッフがその場で利用履歴を確認できるように、付与ログ・全クーポン履歴 (未使用/使用済/期限切れ) も返す。
       stampLogs: stampLogs.map((log) => ({
         id: log.id, source: log.source, finalPoints: log.final_points, multiplierApplied: log.multiplier_applied, createdAt: log.created_at,
