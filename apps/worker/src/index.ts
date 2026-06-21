@@ -22,6 +22,8 @@ import { runExpirer } from './services/booking-expirer.js';
 import { processDueEventReminders } from './services/event-booking-reminders.js';
 import { runEventBookingExpirer } from './services/event-booking-expirer.js';
 import { processCardCouponExpiryReminders } from './services/card-coupon-reminders.js';
+import { processFriendAnniversaryReminders } from './services/friend-anniversary-reminders.js';
+import { processBirthdayCoupons } from './services/birthday-coupon-issuer.js';
 import { processWeatherMultiplierToggles } from './services/weather-multiplier.js';
 import { sendEventBookingNotification } from './services/event-booking-notifier.js';
 import { sendBookingNotification } from './services/booking-notifier.js';
@@ -705,6 +707,30 @@ async function scheduled(
       console.log(`[card-coupon-expirer] cards=${expiredCards} coupons=${expiredCoupons}`);
     } catch (e) {
       console.error('card-coupon-expirer error:', e);
+    }
+  }
+
+  // 友だち登録記念日ボーナスの事前リマインド (3日前) — 月単位dedupなので6hごとで十分。
+  if (event.cron === '0 */6 * * *') {
+    try {
+      const result = await processFriendAnniversaryReminders(env.DB, { now: new Date() });
+      if (result.sent + result.failed > 0) {
+        console.log(`[friend-anniversary-reminders] sent=${result.sent} failed=${result.failed}`);
+      }
+    } catch (e) {
+      console.error('friend-anniversary-reminders error:', e);
+    }
+  }
+
+  // 誕生月クーポンの自動発行 — 月単位dedupなので6hごとで十分。
+  if (event.cron === '0 */6 * * *') {
+    try {
+      const result = await processBirthdayCoupons(env.DB, { now: new Date() });
+      if (result.issued + result.failed > 0) {
+        console.log(`[birthday-coupon-issuer] issued=${result.issued} failed=${result.failed}`);
+      }
+    } catch (e) {
+      console.error('birthday-coupon-issuer error:', e);
     }
   }
 

@@ -13,6 +13,7 @@ export interface CouponTemplateRow {
   message_template_id: string | null;
   is_active: number;
   image_url: string | null;
+  usage_policy: 'single_use' | 'unlimited_in_period';
   created_at: string;
   updated_at: string;
 }
@@ -36,8 +37,16 @@ export interface UserCouponRow {
   coupon_name_at_issuance: string | null;
   coupon_description_at_issuance: string | null;
   coupon_image_url_at_issuance: string | null;
+  usage_policy: 'single_use' | 'unlimited_in_period';
   created_at: string;
   updated_at: string;
+}
+
+export interface CouponRedemptionRow {
+  id: string;
+  user_coupon_id: string;
+  redeemed_by_staff_id: string | null;
+  redeemed_at: string;
 }
 
 export async function getCouponTemplateById(db: D1Database, id: string): Promise<CouponTemplateRow | null> {
@@ -53,6 +62,7 @@ export interface CreateCouponTemplateInput {
   absoluteExpiresAt?: string | null;
   messageTemplateId?: string | null;
   imageUrl?: string | null;
+  usagePolicy?: CouponTemplateRow['usage_policy'];
 }
 
 export async function createCouponTemplate(db: D1Database, input: CreateCouponTemplateInput): Promise<CouponTemplateRow> {
@@ -60,12 +70,13 @@ export async function createCouponTemplate(db: D1Database, input: CreateCouponTe
   const now = jstNow();
   await db
     .prepare(
-      `INSERT INTO coupon_templates (id, line_account_id, name, description, validity_type, validity_days, absolute_expires_at, message_template_id, image_url, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO coupon_templates (id, line_account_id, name, description, validity_type, validity_days, absolute_expires_at, message_template_id, image_url, usage_policy, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id, input.lineAccountId, input.name, input.description ?? null, input.validityType,
-      input.validityDays ?? null, input.absoluteExpiresAt ?? null, input.messageTemplateId ?? null, input.imageUrl ?? null, now, now,
+      input.validityDays ?? null, input.absoluteExpiresAt ?? null, input.messageTemplateId ?? null, input.imageUrl ?? null,
+      input.usagePolicy ?? 'single_use', now, now,
     )
     .run();
   return (await getCouponTemplateById(db, id))!;
@@ -77,13 +88,13 @@ export async function updateCouponTemplate(
   updates: Partial<{
     name: string; description: string | null; validityType: CouponTemplateRow['validity_type'];
     validityDays: number | null; absoluteExpiresAt: string | null; messageTemplateId: string | null; isActive: boolean;
-    imageUrl: string | null;
+    imageUrl: string | null; usagePolicy: CouponTemplateRow['usage_policy'];
   }>,
 ): Promise<CouponTemplateRow | null> {
   const colMap: Record<string, string> = {
     name: 'name', description: 'description', validityType: 'validity_type',
     validityDays: 'validity_days', absoluteExpiresAt: 'absolute_expires_at', messageTemplateId: 'message_template_id',
-    imageUrl: 'image_url',
+    imageUrl: 'image_url', usagePolicy: 'usage_policy',
   };
   const sets: string[] = [];
   const values: unknown[] = [];
@@ -134,6 +145,8 @@ export async function issueCoupon(
     couponTemplateId: string;
     issuedVia: 'rank_clear' | 'manual' | 'campaign';
     sourceUserCardId?: string;
+    /** 誕生月クーポン等、テンプレートの既定有効期限ではなく明示的な期限を使いたい場合に指定する。 */
+    expiresAtOverride?: string;
   },
 ): Promise<UserCouponRow> {
   const template = await getCouponTemplateById(db, params.couponTemplateId);
@@ -142,19 +155,19 @@ export async function issueCoupon(
   const id = crypto.randomUUID();
   const now = jstNow();
   const issuedAtIso = new Date().toISOString();
-  const expiresAt = resolveExpiresAt(template, issuedAtIso);
+  const expiresAt = params.expiresAtOverride ?? resolveExpiresAt(template, issuedAtIso);
 
   await db
     .prepare(
       `INSERT INTO user_coupons (
          id, friend_id, coupon_template_id, line_account_id, issued_via, source_user_card_id,
          issued_at, expires_at, coupon_name_at_issuance, coupon_description_at_issuance, coupon_image_url_at_issuance,
-         created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         usage_policy, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id, params.friendId, params.couponTemplateId, params.lineAccountId, params.issuedVia, params.sourceUserCardId ?? null,
-      now, expiresAt, template.name, template.description, template.image_url, now, now,
+      now, expiresAt, template.name, template.description, template.image_url, template.usage_policy, now, now,
     )
     .run();
 
@@ -192,17 +205,35 @@ export async function getUserCoupons(
   return result.results;
 }
 
+/** unlimited_in_period クーポンの、これまでの利用回数 (表示・上限なしの確認用)。 */
+export async function countCouponRedemptions(db: D1Database, couponId: string): Promise<number> {
+  const row = await db.prepare(`SELECT COUNT(*) as c FROM user_coupon_redemptions WHERE user_coupon_id = ?`).bind(couponId).first<{ c: number }>();
+  return row?.c ?? 0;
+}
+
 /**
- * スタッフによる「消し込み」(使用済みへの変更)。期限切れ/使用済みは不可。
+ * スタッフによるクーポン消し込み。usage_policy で挙動が分かれる:
+ *   - single_use (既定): 従来通り status を 'used' に固定し、以後は消し込み不可。
+ *   - unlimited_in_period: status は 'unused' のまま保ち、利用ログだけ追加する
+ *     (有効期限内であれば何度でも消し込める — 誕生月クーポン等の想定)。
  * staffId は null 可 — QRスキャン経由の消し込みは個別スタッフのログイン無しで動くため、
  * 誰が消し込んだか追跡できないケースを許容する (店舗用 staff_members との連携は未実装)。
  */
-export async function markCouponUsed(db: D1Database, couponId: string, staffId: string | null): Promise<{ success: boolean; error?: string }> {
+export async function redeemCoupon(db: D1Database, couponId: string, staffId: string | null): Promise<{ success: boolean; error?: string; redemptionCount?: number }> {
   const coupon = await getUserCouponById(db, couponId);
   if (!coupon) return { success: false, error: 'not_found' };
-  if (coupon.status !== 'unused') return { success: false, error: `already_${coupon.status}` };
+  if (coupon.status === 'expired') return { success: false, error: 'expired' };
   if (new Date(coupon.expires_at).getTime() <= Date.now()) return { success: false, error: 'expired' };
 
+  if (coupon.usage_policy === 'unlimited_in_period') {
+    await db
+      .prepare(`INSERT INTO user_coupon_redemptions (id, user_coupon_id, redeemed_by_staff_id, redeemed_at) VALUES (?, ?, ?, ?)`)
+      .bind(crypto.randomUUID(), couponId, staffId, jstNow())
+      .run();
+    return { success: true, redemptionCount: await countCouponRedemptions(db, couponId) };
+  }
+
+  if (coupon.status !== 'unused') return { success: false, error: `already_${coupon.status}` };
   await db
     .prepare(`UPDATE user_coupons SET status = 'used', used_at = ?, used_by_staff_id = ?, updated_at = ? WHERE id = ? AND status = 'unused'`)
     .bind(jstNow(), staffId, jstNow(), couponId)
@@ -313,4 +344,45 @@ export async function expireOverdueCoupons(db: D1Database, now: Date): Promise<n
     .bind(jstNow(), now.toISOString())
     .run();
   return (result.meta as { changes?: number }).changes ?? 0;
+}
+
+export interface BirthdayCouponCandidate {
+  friend_id: string;
+  line_account_id: string;
+  line_user_id: string;
+  channel_access_token: string;
+  birthday_coupon_template_id: string;
+}
+
+/** その月が誕生月で、その年はまだ誕生月クーポンを発行していない友だち一覧 (誕生月クーポン自動発行cronが使う)。 */
+export async function getBirthdayCouponCandidates(db: D1Database, targetMonth: number, targetYear: number): Promise<BirthdayCouponCandidate[]> {
+  const result = await db
+    .prepare(
+      `SELECT uc.friend_id, uc.line_account_id, f.line_user_id, la.channel_access_token, cs.birthday_coupon_template_id
+         FROM user_cards uc
+         INNER JOIN friends f ON f.id = uc.friend_id
+         INNER JOIN line_accounts la ON la.id = uc.line_account_id
+         INNER JOIN card_settings cs ON cs.line_account_id = uc.line_account_id
+         LEFT JOIN friend_birthday_coupon_log log ON log.friend_id = uc.friend_id AND log.line_account_id = uc.line_account_id AND log.year = ?
+        WHERE cs.birthday_coupon_enabled = 1
+          AND cs.birthday_coupon_template_id IS NOT NULL
+          AND f.birthday_month = ?
+          AND log.friend_id IS NULL`,
+    )
+    .bind(targetYear, targetMonth)
+    .all<BirthdayCouponCandidate>();
+  return result.results;
+}
+
+export async function markBirthdayCouponIssued(
+  db: D1Database,
+  params: { friendId: string; lineAccountId: string; year: number; issuedCouponId: string },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO friend_birthday_coupon_log (friend_id, line_account_id, year, issued_coupon_id) VALUES (?, ?, ?, ?)
+       ON CONFLICT (friend_id, line_account_id, year) DO NOTHING`,
+    )
+    .bind(params.friendId, params.lineAccountId, params.year, params.issuedCouponId)
+    .run();
 }

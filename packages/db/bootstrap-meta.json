@@ -60,7 +60,10 @@
     "052_rank_milestones_and_images.sql",
     "053_expiry_mode_angle_and_schedule.sql",
     "054_expiry_extension_and_penalty.sql",
-    "055_multiplier_combination_mode.sql"
+    "055_multiplier_combination_mode.sql",
+    "056_friend_anniversary_and_birthday.sql",
+    "057_coupon_usage_policy.sql",
+    "058_birthday_coupon.sql"
   ],
-  "migrationCount": 61
+  "migrationCount": 64
 }

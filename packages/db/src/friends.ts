@@ -10,6 +10,9 @@ export interface Friend {
   line_account_id: string | null;
   metadata: string;
   first_tracked_link_id: string | null;
+  birthday_year: number | null;
+  birthday_month: number | null;
+  birthday_day: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -108,6 +111,18 @@ export async function getFriendById(
     .prepare(`SELECT * FROM friends WHERE id = ?`)
     .bind(id)
     .first<Friend>();
+}
+
+/** お客様がLIFFから自分の誕生日を登録/編集する (誕生月クーポンの自動発行に使う)。 */
+export async function setFriendBirthday(
+  db: D1Database,
+  friendId: string,
+  birthday: { year: number | null; month: number; day: number },
+): Promise<void> {
+  await db
+    .prepare(`UPDATE friends SET birthday_year = ?, birthday_month = ?, birthday_day = ?, updated_at = ? WHERE id = ?`)
+    .bind(birthday.year, birthday.month, birthday.day, jstNow(), friendId)
+    .run();
 }
 
 /**

@@ -14,7 +14,8 @@ import {
   grantStamp,
   issueCoupon,
   getUserCoupons,
-  markCouponUsed,
+  redeemCoupon,
+  countCouponRedemptions,
   getLineAccountById,
   getFriendById,
   isAuthorizedGrantOperator,
@@ -25,6 +26,7 @@ import {
   getStampLogsForUserCard,
   getPointMultiplierRules,
   resolveActiveMultiplier,
+  isFriendAnniversaryDate,
 } from '@line-crm/db';
 import { signGrantToken, verifyGrantToken, signOperatorRegistrationToken, verifyOperatorRegistrationToken } from '../lib/qr-token.js';
 import { verifyCallerLineUserId, verifyCallerProfile } from '../services/liff-auth.js';
@@ -105,8 +107,13 @@ stampGrant.get('/api/liff/stamp-cards/grant-preview', async (c) => {
   const stampLogs = await getStampLogsForUserCard(c.env.DB, card.id, 20);
 
   // 現時点で適用されているポイント倍率ルール (スタッフ画面に表示し、入力ポイント数のリアルタイム計算に使う)。
+  // このお客様の登録記念日ボーナスも、実際の付与 (grantStamp) と同じ条件でプレビューに反映する。
   const rules = await getPointMultiplierRules(c.env.DB, payload.accountId);
-  const multiplierResolution = resolveActiveMultiplier(rules, new Date(), settings?.multiplier_combination_mode);
+  const now = new Date();
+  const anniversaryMatch = settings?.friend_anniversary_multiplier_enabled && isFriendAnniversaryDate(friend.created_at, now)
+    ? { name: 'ご登録記念日ボーナス', multiplier: settings.friend_anniversary_multiplier_value }
+    : null;
+  const multiplierResolution = resolveActiveMultiplier(rules, now, settings?.multiplier_combination_mode, anniversaryMatch);
 
   return c.json({
     success: true,
@@ -119,9 +126,11 @@ stampGrant.get('/api/liff/stamp-cards/grant-preview', async (c) => {
         multiplier: multiplierResolution.multiplier,
         appliedRuleNames: multiplierResolution.appliedRules.map((r) => r.name),
       },
-      coupons: coupons.map((cp) => ({
+      coupons: await Promise.all(coupons.map(async (cp) => ({
         id: cp.id, name: cp.display_name, description: cp.display_description, imageUrl: cp.display_image_url, expiresAt: cp.expires_at,
-      })),
+        usagePolicy: cp.usage_policy,
+        redemptionCount: cp.usage_policy === 'unlimited_in_period' ? await countCouponRedemptions(c.env.DB, cp.id) : null,
+      }))),
       // スタッフがその場で利用履歴を確認できるように、付与ログ・全クーポン履歴 (未使用/使用済/期限切れ) も返す。
       stampLogs: stampLogs.map((log) => ({
         id: log.id, source: log.source, finalPoints: log.final_points, multiplierApplied: log.multiplier_applied, createdAt: log.created_at,
@@ -223,9 +232,9 @@ stampGrant.post('/api/liff/coupons/:id/redeem', async (c) => {
   const coupon = await c.env.DB.prepare(`SELECT friend_id FROM user_coupons WHERE id = ?`).bind(c.req.param('id')).first<{ friend_id: string }>();
   if (!coupon || coupon.friend_id !== payload.friendId) return c.json({ success: false, error: 'not_found' }, 404);
 
-  const result = await markCouponUsed(c.env.DB, c.req.param('id'), null);
+  const result = await redeemCoupon(c.env.DB, c.req.param('id'), null);
   if (!result.success) return c.json({ success: false, error: result.error }, 409);
-  return c.json({ success: true, data: null });
+  return c.json({ success: true, data: { redemptionCount: result.redemptionCount ?? null } });
 });
 
 // ── スタッフ登録 (オペレーター allowlist) ──────────────────────────────────

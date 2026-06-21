@@ -48,6 +48,7 @@ interface CardResponse {
   stampImageUrl: string | null;
   rankBadgeLayout: 'split' | 'background';
   stampAngleEnabled: boolean;
+  birthday: { year: number | null; month: number; day: number } | null;
 }
 
 interface CouponItem {
@@ -74,12 +75,13 @@ function apiGet<T>(path: string, ctx: StampCardContext): Promise<T> {
   });
 }
 
-async function apiPost<T>(path: string, ctx: StampCardContext): Promise<T> {
+async function apiPost<T>(path: string, ctx: StampCardContext, payload?: unknown): Promise<T> {
   const url = new URL(path, window.location.origin);
   url.searchParams.set('liffId', ctx.liffId);
   const res = await fetch(url.toString(), {
     method: 'POST',
     headers: buildAuthHeaders(ctx, { 'Content-Type': 'application/json' }),
+    body: payload !== undefined ? JSON.stringify(payload) : undefined,
   });
   const body = (await res.json().catch(() => ({}))) as T & { error?: string };
   if (!res.ok) {
@@ -352,6 +354,80 @@ function ExtendedNotice({ newExpiresAt }: { newExpiresAt: string }) {
   );
 }
 
+function BirthdaySection({
+  ctx,
+  birthday,
+  onSaved,
+}: {
+  ctx: StampCardContext;
+  birthday: { year: number | null; month: number; day: number } | null;
+  onSaved: (b: { year: number | null; month: number; day: number }) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [year, setYear] = useState<string>(birthday?.year ? String(birthday.year) : '');
+  const [month, setMonth] = useState(birthday?.month ?? 1);
+  const [day, setDay] = useState(birthday?.day ?? 1);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    try {
+      const payload = { year: year ? Number(year) : null, month, day };
+      await apiPost('/api/liff/friends/me/birthday', ctx, payload);
+      onSaved(payload);
+      setEditing(false);
+    } catch {
+      setError('保存に失敗しました。もう一度お試しください。');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!editing) {
+    return (
+      <div className="sc-card mt-3 flex items-center justify-between">
+        <span className="text-sm text-gray-700">
+          {birthday ? `誕生日: ${birthday.month}月${birthday.day}日` : '誕生日が未登録です（誕生月の特典が受け取れます）'}
+        </span>
+        <button onClick={() => setEditing(true)} className="text-xs sc-line-green-text underline shrink-0">
+          {birthday ? '編集' : '登録する'}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="sc-card mt-3">
+      <div className="text-xs text-gray-600 mb-2">誕生日を登録（誕生月限定の特典に使われます）</div>
+      <div className="flex gap-2 items-end">
+        <div>
+          <label className="block text-[11px] text-gray-500 mb-0.5">年（任意）</label>
+          <input type="number" value={year} onChange={(e) => setYear(e.target.value)} placeholder="例: 1990" className="w-20 border border-gray-300 rounded px-2 py-1.5 text-sm" />
+        </div>
+        <div>
+          <label className="block text-[11px] text-gray-500 mb-0.5">月</label>
+          <select value={month} onChange={(e) => setMonth(Number(e.target.value))} className="border border-gray-300 rounded px-2 py-1.5 text-sm">
+            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-[11px] text-gray-500 mb-0.5">日</label>
+          <select value={day} onChange={(e) => setDay(Number(e.target.value))} className="border border-gray-300 rounded px-2 py-1.5 text-sm">
+            {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </div>
+        <button onClick={save} disabled={busy} className="text-xs rounded-md bg-emerald-600 px-3 py-2 text-white shrink-0">
+          {busy ? '保存中...' : '保存'}
+        </button>
+      </div>
+      {error && <div className="text-xs text-red-600 mt-2">{error}</div>}
+      <button onClick={() => setEditing(false)} className="text-xs text-gray-500 underline mt-2">キャンセル</button>
+    </div>
+  );
+}
+
 function CardScreen({ ctx, onShowCoupons, onShowQr }: { ctx: StampCardContext; onShowCoupons: () => void; onShowQr: () => void }) {
   const [data, setData] = useState<CardResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -368,7 +444,7 @@ function CardScreen({ ctx, onShowCoupons, onShowQr }: { ctx: StampCardContext; o
   if (error) return <div className="px-4 py-6"><div className="sc-card text-center text-sm text-gray-600">{error}</div></div>;
   if (!data) return <Spinner />;
 
-  const { card, reservationUrl, stampImageUrl, rankBadgeLayout, stampAngleEnabled } = data;
+  const { card, reservationUrl, stampImageUrl, rankBadgeLayout, stampAngleEnabled, birthday } = data;
 
   return (
     <div className="px-4 py-4 pb-10 sc-fade-in">
@@ -379,6 +455,7 @@ function CardScreen({ ctx, onShowCoupons, onShowQr }: { ctx: StampCardContext; o
           カードの有効期限: {formatJpDate(card.expiresAt)} まで
         </div>
       )}
+      <BirthdaySection ctx={ctx} birthday={birthday} onSaved={(b) => setData((d) => (d ? { ...d, birthday: b } : d))} />
       {extendedAt ? <ExtendedNotice newExpiresAt={extendedAt} /> : <ExtendSection ctx={ctx} card={card} onExtended={setExtendedAt} />}
       <button onClick={onShowQr} className="sc-primary-btn mt-3">
         スタッフにスタンプを押してもらう
@@ -451,7 +528,7 @@ interface GrantPreview {
   stampRuleType: 'per_visit' | 'per_amount';
   amountPerStamp: number | null;
   activeMultiplier: { multiplier: number; appliedRuleNames: string[] };
-  coupons: Array<{ id: string; name: string; description: string | null; imageUrl: string | null; expiresAt: string }>;
+  coupons: Array<{ id: string; name: string; description: string | null; imageUrl: string | null; expiresAt: string; usagePolicy: 'single_use' | 'unlimited_in_period'; redemptionCount: number | null }>;
   stampLogs: Array<{ id: string; source: string; finalPoints: number; multiplierApplied: number; createdAt: string }>;
   couponHistory: Array<{ id: string; name: string; status: 'unused' | 'used' | 'expired'; issuedAt: string; expiresAt: string; usedAt: string | null }>;
 }
@@ -541,6 +618,7 @@ function GrantScreen({ ctx, token }: { ctx: StampCardContext; token: string }) {
   const [busy, setBusy] = useState(false);
   const [granted, setGranted] = useState<{ stampCount: number; rankedUp: boolean; issuedCoupon: boolean } | null>(null);
   const [redeemedIds, setRedeemedIds] = useState<Set<string>>(new Set());
+  const [redemptionCounts, setRedemptionCounts] = useState<Record<string, number>>({});
   const [activeCoupon, setActiveCoupon] = useState<GrantPreview['coupons'][number] | null>(null);
 
   useEffect(() => {
@@ -576,14 +654,18 @@ function GrantScreen({ ctx, token }: { ctx: StampCardContext; token: string }) {
     }
   }
 
-  async function redeem(couponId: string) {
+  async function redeem(couponId: string, usagePolicy: 'single_use' | 'unlimited_in_period') {
     try {
-      await fetchJson(`/api/liff/coupons/${couponId}/redeem`, {
+      const res = await fetchJson<{ success: boolean; data: { redemptionCount: number | null } }>(`/api/liff/coupons/${couponId}/redeem`, {
         method: 'POST',
         headers: buildAuthHeaders(ctx, { 'Content-Type': 'application/json' }),
         body: JSON.stringify({ token }),
       });
-      setRedeemedIds((s) => new Set(s).add(couponId));
+      if (usagePolicy === 'unlimited_in_period') {
+        setRedemptionCounts((m) => ({ ...m, [couponId]: res.data.redemptionCount ?? (m[couponId] ?? 0) + 1 }));
+      } else {
+        setRedeemedIds((s) => new Set(s).add(couponId));
+      }
     } catch (e) {
       setError(describeOperatorError((e as { code?: string }).code));
     }
@@ -672,10 +754,14 @@ function GrantScreen({ ctx, token }: { ctx: StampCardContext; token: string }) {
                 <button onClick={() => setActiveCoupon(cp)} className="text-xs text-gray-700 truncate underline text-left">
                   {cp.name}<span className="text-gray-400">（{formatJpDate(cp.expiresAt)}まで）</span>
                 </button>
-                {redeemedIds.has(cp.id) ? (
+                {cp.usagePolicy === 'unlimited_in_period' ? (
+                  <button onClick={() => redeem(cp.id, cp.usagePolicy)} className="text-xs rounded-md bg-emerald-600 px-3 py-1.5 text-white shrink-0">
+                    利用する（利用回数: {redemptionCounts[cp.id] ?? cp.redemptionCount ?? 0}）
+                  </button>
+                ) : redeemedIds.has(cp.id) ? (
                   <span className="text-xs text-emerald-700 shrink-0">使用済みにしました✓</span>
                 ) : (
-                  <button onClick={() => redeem(cp.id)} className="text-xs rounded-md bg-emerald-600 px-3 py-1.5 text-white shrink-0">
+                  <button onClick={() => redeem(cp.id, cp.usagePolicy)} className="text-xs rounded-md bg-emerald-600 px-3 py-1.5 text-white shrink-0">
                     使用済みにする
                   </button>
                 )}

@@ -1024,3 +1024,43 @@ CREATE TABLE IF NOT EXISTS user_card_milestone_coupons (
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_card_milestone_coupons_card ON user_card_milestone_coupons (user_card_id);
+
+-- =============================================================================
+-- Migration 056: friend_anniversary_reminders
+-- (card_settings/friends へのALTER列追加分は schema.sql に折り込まない既存の慣習に従う)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS friend_anniversary_reminders (
+  friend_id       TEXT NOT NULL REFERENCES friends(id) ON DELETE CASCADE,
+  line_account_id TEXT NOT NULL REFERENCES line_accounts(id) ON DELETE CASCADE,
+  last_sent_month TEXT NOT NULL,
+  PRIMARY KEY (friend_id, line_account_id)
+);
+
+-- =============================================================================
+-- Migration 057: user_coupon_redemptions
+-- (coupon_templates/user_coupons へのALTER列追加分は schema.sql に折り込まない既存の慣習に従う)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS user_coupon_redemptions (
+  id                  TEXT PRIMARY KEY,
+  user_coupon_id      TEXT NOT NULL REFERENCES user_coupons(id) ON DELETE CASCADE,
+  redeemed_by_staff_id TEXT REFERENCES staff(id) ON DELETE SET NULL,
+  redeemed_at         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_coupon_redemptions_coupon ON user_coupon_redemptions (user_coupon_id, redeemed_at);
+
+-- =============================================================================
+-- Migration 058: friend_birthday_coupon_log
+-- (card_settings へのALTER列追加分は schema.sql に折り込まない既存の慣習に従う)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS friend_birthday_coupon_log (
+  friend_id        TEXT NOT NULL REFERENCES friends(id) ON DELETE CASCADE,
+  line_account_id  TEXT NOT NULL REFERENCES line_accounts(id) ON DELETE CASCADE,
+  year             INTEGER NOT NULL,
+  issued_coupon_id TEXT REFERENCES user_coupons(id) ON DELETE SET NULL,
+  created_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  PRIMARY KEY (friend_id, line_account_id, year)
+);

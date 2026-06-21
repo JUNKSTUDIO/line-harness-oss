@@ -143,6 +143,11 @@ export interface CardSettings {
   card_expiry_penalty_target_rank_id: string | null
   stamp_angle_enabled: number
   multiplier_combination_mode: 'highest_priority_only' | 'multiply_all' | 'sum_all'
+  friend_anniversary_multiplier_enabled: number
+  friend_anniversary_multiplier_value: number
+  friend_anniversary_reminder_message: string | null
+  birthday_coupon_enabled: number
+  birthday_coupon_template_id: string | null
   default_coupon_validity_days: number
   reminder_days_before: number
   reservation_url: string | null
@@ -230,6 +235,7 @@ export interface CouponTemplate {
   message_template_id: string | null
   is_active: number
   image_url: string | null
+  usage_policy: 'single_use' | 'unlimited_in_period'
   created_at: string
   updated_at: string
 }
@@ -585,7 +591,7 @@ export const api = {
     create: (body: {
       accountId: string; name: string; description?: string | null
       validityType: CouponTemplate['validity_type']; validityDays?: number | null; absoluteExpiresAt?: string | null
-      imageUrl?: string | null
+      imageUrl?: string | null; usagePolicy?: CouponTemplate['usage_policy']
     }) => fetchApi<ApiResponse<CouponTemplate>>('/api/coupon-templates', { method: 'POST', body: JSON.stringify(body) }),
     update: (id: string, body: Record<string, unknown>) =>
       fetchApi<ApiResponse<CouponTemplate>>(`/api/coupon-templates/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),

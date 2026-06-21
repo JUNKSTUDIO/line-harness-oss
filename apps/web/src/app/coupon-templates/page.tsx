@@ -13,6 +13,7 @@ const EMPTY_FORM = {
   validityDays: 30,
   absoluteExpiresAt: '',
   imageUrl: null as string | null,
+  usagePolicy: 'single_use' as CouponTemplate['usage_policy'],
 }
 
 type EditForm = typeof EMPTY_FORM
@@ -26,17 +27,39 @@ export default function CouponTemplatesPage() {
   const [busy, setBusy] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<EditForm>(EMPTY_FORM)
+  const [birthdayEnabled, setBirthdayEnabled] = useState(0)
+  const [birthdayTemplateId, setBirthdayTemplateId] = useState<string | null>(null)
+  const [savingBirthday, setSavingBirthday] = useState(false)
 
   async function load() {
     if (!selectedAccount) return
     setLoading(true)
-    const res = await api.couponTemplates.list(selectedAccount.id)
-    if (res.success) setTemplates(res.data)
-    else setError(res.error)
+    const [templatesRes, settingsRes] = await Promise.all([
+      api.couponTemplates.list(selectedAccount.id),
+      api.cardSettings.get(selectedAccount.id),
+    ])
+    if (templatesRes.success) setTemplates(templatesRes.data)
+    else setError(templatesRes.error)
+    if (settingsRes.success) {
+      setBirthdayEnabled(settingsRes.data.birthday_coupon_enabled)
+      setBirthdayTemplateId(settingsRes.data.birthday_coupon_template_id)
+    }
     setLoading(false)
   }
 
   useEffect(() => { load() }, [selectedAccount]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function saveBirthdaySettings(enabled: number, templateId: string | null) {
+    if (!selectedAccount) return
+    setBirthdayEnabled(enabled)
+    setBirthdayTemplateId(templateId)
+    setSavingBirthday(true)
+    try {
+      await api.cardSettings.update(selectedAccount.id, { birthday_coupon_enabled: enabled, birthday_coupon_template_id: templateId })
+    } finally {
+      setSavingBirthday(false)
+    }
+  }
 
   async function add() {
     if (!selectedAccount || !form.name) return
@@ -51,6 +74,7 @@ export default function CouponTemplatesPage() {
         validityDays: form.validityType === 'relative_days' ? form.validityDays : undefined,
         absoluteExpiresAt: form.validityType === 'absolute_date' ? form.absoluteExpiresAt : undefined,
         imageUrl: form.imageUrl,
+        usagePolicy: form.usagePolicy,
       })
       if (res.success) {
         setForm(EMPTY_FORM)
@@ -72,6 +96,7 @@ export default function CouponTemplatesPage() {
       validityDays: t.validity_days ?? 30,
       absoluteExpiresAt: t.absolute_expires_at ?? '',
       imageUrl: t.image_url,
+      usagePolicy: t.usage_policy,
     })
   }
 
@@ -87,6 +112,7 @@ export default function CouponTemplatesPage() {
         validityDays: editForm.validityType === 'relative_days' ? editForm.validityDays : null,
         absoluteExpiresAt: editForm.validityType === 'absolute_date' ? editForm.absoluteExpiresAt : null,
         imageUrl: editForm.imageUrl,
+        usagePolicy: editForm.usagePolicy,
       })
       if (res.success) {
         setTemplates((ts) => ts.map((t) => (t.id === editingId ? res.data : t)))
@@ -132,6 +158,33 @@ export default function CouponTemplatesPage() {
       <div className="p-6 max-w-3xl space-y-6">
         {error && <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg text-sm">{error}</div>}
 
+        <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-3">
+          <h2 className="text-sm font-bold text-gray-900">誕生月クーポンの自動発行</h2>
+          <p className="text-xs text-gray-500">
+            お客様がLIFFで誕生日を登録すると、誕生月の最初の6時間サイクルで自動発行し、お知らせを送ります（有効期限は誕生月の末日まで・年1回）。
+          </p>
+          <div className="flex items-center gap-3">
+            <select
+              value={birthdayEnabled ? '1' : '0'}
+              onChange={(e) => saveBirthdaySettings(Number(e.target.value), birthdayTemplateId)}
+              disabled={savingBirthday}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            >
+              <option value="0">OFF</option>
+              <option value="1">ON</option>
+            </select>
+            <select
+              value={birthdayTemplateId ?? ''}
+              onChange={(e) => saveBirthdaySettings(birthdayEnabled, e.target.value || null)}
+              disabled={savingBirthday}
+              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            >
+              <option value="">発行するクーポンを選択</option>
+              {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
+        </div>
+
         <div className="space-y-2">
           {templates.length === 0 && (
             <div className="bg-white border border-gray-200 rounded-xl p-6 text-center text-sm text-gray-400">まだテンプレートがありません</div>
@@ -167,6 +220,13 @@ export default function CouponTemplatesPage() {
                         <input type="date" value={editForm.absoluteExpiresAt} onChange={(e) => setEditForm({ ...editForm, absoluteExpiresAt: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
                       </div>
                     )}
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">使用回数の制限</label>
+                    <select value={editForm.usagePolicy} onChange={(e) => setEditForm({ ...editForm, usagePolicy: e.target.value as CouponTemplate['usage_policy'] })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                      <option value="single_use">1回だけ使える（既定）</option>
+                      <option value="unlimited_in_period">有効期限内は何度でも使える</option>
+                    </select>
                   </div>
                   <ImageUploader
                     mode="url"
@@ -233,6 +293,13 @@ export default function CouponTemplatesPage() {
                 <input type="date" value={form.absoluteExpiresAt} onChange={(e) => setForm({ ...form, absoluteExpiresAt: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
               </div>
             )}
+          </div>
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">使用回数の制限</label>
+            <select value={form.usagePolicy} onChange={(e) => setForm({ ...form, usagePolicy: e.target.value as CouponTemplate['usage_policy'] })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+              <option value="single_use">1回だけ使える（既定）</option>
+              <option value="unlimited_in_period">有効期限内は何度でも使える</option>
+            </select>
           </div>
           <ImageUploader
             mode="url"

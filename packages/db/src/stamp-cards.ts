@@ -1,4 +1,5 @@
 import { jstNow, toJstString } from './utils.js';
+import { getFriendById } from './friends.js';
 
 // ランクアップ式スタンプカード — クエリヘルパー
 
@@ -17,6 +18,11 @@ export interface CardSettingsRow {
   card_expiry_penalty_target_rank_id: string | null;
   stamp_angle_enabled: number;
   multiplier_combination_mode: 'highest_priority_only' | 'multiply_all' | 'sum_all';
+  friend_anniversary_multiplier_enabled: number;
+  friend_anniversary_multiplier_value: number;
+  friend_anniversary_reminder_message: string | null;
+  birthday_coupon_enabled: number;
+  birthday_coupon_template_id: string | null;
   default_coupon_validity_days: number;
   reminder_days_before: number;
   reservation_url: string | null;
@@ -109,11 +115,14 @@ export async function upsertCardSettings(
            line_account_id, stamp_rule_type, amount_per_stamp, signup_bonus_stamps,
            rank_enabled, flat_goal_stamps, card_expiry_months, card_expiry_mode, card_expiry_days_from_issue,
            card_expiry_self_extension_enabled, card_expiry_penalty_type, card_expiry_penalty_target_rank_id,
-           stamp_angle_enabled, multiplier_combination_mode, default_coupon_validity_days,
+           stamp_angle_enabled, multiplier_combination_mode,
+           friend_anniversary_multiplier_enabled, friend_anniversary_multiplier_value, friend_anniversary_reminder_message,
+           birthday_coupon_enabled, birthday_coupon_template_id,
+           default_coupon_validity_days,
            reminder_days_before, reservation_url, stamp_image_url, shop_latitude, shop_longitude,
            shop_address, weather_check_interval_minutes, weather_check_anchor_time, rank_badge_layout,
            created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         lineAccountId,
@@ -130,6 +139,11 @@ export async function upsertCardSettings(
         input.card_expiry_penalty_target_rank_id ?? null,
         input.stamp_angle_enabled ?? 1,
         input.multiplier_combination_mode ?? 'highest_priority_only',
+        input.friend_anniversary_multiplier_enabled ?? 0,
+        input.friend_anniversary_multiplier_value ?? 1.5,
+        input.friend_anniversary_reminder_message ?? null,
+        input.birthday_coupon_enabled ?? 0,
+        input.birthday_coupon_template_id ?? null,
         input.default_coupon_validity_days ?? 30,
         input.reminder_days_before ?? 3,
         input.reservation_url ?? null,
@@ -451,17 +465,36 @@ export interface MultiplierResolution {
   /** 単一ルールのみが寄与した場合に限りそのIDを返す (複数合算時はstamp_logsに単一FKで記録できないためnull)。 */
   ruleId: string | null;
   /** 現在マッチしている全ルール (表示用)。combinationMode による計算前の生データ。 */
-  appliedRules: Array<{ id: string; name: string; multiplier: number }>;
+  appliedRules: Array<{ id: string | null; name: string; multiplier: number }>;
+}
+
+/**
+ * 月末ロールオーバー対応: 基準の日にち (例: 友だち追加日の「日」) を、指定した年月の末日に
+ * 収まるよう調整する (例: 基準=31日、2月 (28日まで) → 28日)。
+ */
+function rolloverDayForMonth(originalDay: number, year: number, monthIndex0: number): number {
+  const daysInMonth = new Date(year, monthIndex0 + 1, 0).getDate();
+  return Math.min(originalDay, daysInMonth);
+}
+
+/** baseDateIso (例: friends.created_at) を基準にした「毎月の記念日」が、targetDateのJST暦日と一致するか。 */
+export function isFriendAnniversaryDate(baseDateIso: string, targetDate: Date): boolean {
+  const jstTarget = new Date(targetDate.getTime() + JST_OFFSET_MS);
+  const jstBase = new Date(new Date(baseDateIso).getTime() + JST_OFFSET_MS);
+  const anniversaryDay = rolloverDayForMonth(jstBase.getUTCDate(), jstTarget.getUTCFullYear(), jstTarget.getUTCMonth());
+  return jstTarget.getUTCDate() === anniversaryDay;
 }
 
 export function resolveActiveMultiplier(
   rules: PointMultiplierRuleRow[],
   now: Date,
   combinationMode: CardSettingsRow['multiplier_combination_mode'] = 'highest_priority_only',
+  /** 友だち登録記念日ボーナス等、DBのルール表とは別経路で「今だけ成立」と判定済みの追加倍率。 */
+  extraMatch?: { name: string; multiplier: number } | null,
 ): MultiplierResolution {
   // Workers の実行時刻はUTC基準。曜日/日付の判定はJSTの暦日で行う必要がある。
   const jstNowDate = new Date(now.getTime() + JST_OFFSET_MS);
-  const matching = rules.filter((rule) => {
+  const matchingRules = rules.filter((rule) => {
     if (!rule.is_active) return false;
     switch (rule.condition_type) {
       case 'manual':
@@ -484,27 +517,33 @@ export function resolveActiveMultiplier(
         return false;
     }
   });
-  if (matching.length === 0) return { multiplier: 1, ruleId: null, appliedRules: [] };
 
-  const appliedRules = matching.map((r) => ({ id: r.id, name: r.name, multiplier: r.multiplier }));
+  // highest_priority_only モードでは、明示的に管理画面で設定された通常ルールが
+  // ある場合はそれを優先し、記念日ボーナスは「他に何もマッチしない日」の救済としてのみ効く。
+  if (combinationMode === 'highest_priority_only' && matchingRules.length > 0) {
+    const top = matchingRules[0];
+    return { multiplier: top.multiplier, ruleId: top.id, appliedRules: matchingRules.map((r) => ({ id: r.id, name: r.name, multiplier: r.multiplier })) };
+  }
+
+  const matching: Array<{ id: string | null; name: string; multiplier: number }> = [
+    ...matchingRules.map((r) => ({ id: r.id, name: r.name, multiplier: r.multiplier })),
+    ...(extraMatch ? [{ id: null, name: extraMatch.name, multiplier: extraMatch.multiplier }] : []),
+  ];
+  if (matching.length === 0) return { multiplier: 1, ruleId: null, appliedRules: [] };
 
   // 単一ルールのみがマッチしている場合は、合算モードに関わらず結果は同じなので単純に返す。
   if (matching.length === 1) {
-    return { multiplier: matching[0].multiplier, ruleId: matching[0].id, appliedRules };
+    return { multiplier: matching[0].multiplier, ruleId: matching[0].id, appliedRules: matching };
   }
 
   if (combinationMode === 'multiply_all') {
     const multiplier = matching.reduce((acc, r) => acc * r.multiplier, 1);
-    return { multiplier, ruleId: null, appliedRules };
+    return { multiplier, ruleId: null, appliedRules: matching };
   }
-  if (combinationMode === 'sum_all') {
-    // (base*m1) + (base*m2) + ... = base * (m1+m2+...) なので、倍率同士の合計でよい。
-    const multiplier = matching.reduce((acc, r) => acc + r.multiplier, 0);
-    return { multiplier, ruleId: null, appliedRules };
-  }
-  // highest_priority_only (既定): priority DESC で取得済みのため先頭が最優先。
-  const top = matching[0];
-  return { multiplier: top.multiplier, ruleId: top.id, appliedRules };
+  // sum_all (highest_priority_only でここに来るのは matchingRules が0件、つまり記念日ボーナスのみの場合):
+  // (base*m1) + (base*m2) + ... = base * (m1+m2+...) なので、倍率同士の合計でよい。
+  const multiplier = matching.reduce((acc, r) => acc + r.multiplier, 0);
+  return { multiplier, ruleId: null, appliedRules: matching };
 }
 
 // --- user_cards ---
@@ -689,8 +728,17 @@ export async function grantStamp(
     basePoints = Math.floor((params.amountYen ?? 0) / unit);
   }
 
+  // 友だち登録記念日ボーナス: そのお客様の「友だち追加日」を基準にした毎月の記念日にだけ成立する個別倍率。
+  let anniversaryMatch: { name: string; multiplier: number } | null = null;
+  if (settings?.friend_anniversary_multiplier_enabled) {
+    const friend = await getFriendById(db, params.friendId);
+    if (friend && isFriendAnniversaryDate(friend.created_at, now)) {
+      anniversaryMatch = { name: 'ご登録記念日ボーナス', multiplier: settings.friend_anniversary_multiplier_value };
+    }
+  }
+
   const rules = await getPointMultiplierRules(db, params.lineAccountId);
-  const { multiplier, ruleId } = resolveActiveMultiplier(rules, now, settings?.multiplier_combination_mode);
+  const { multiplier, ruleId } = resolveActiveMultiplier(rules, now, settings?.multiplier_combination_mode, anniversaryMatch);
   const finalPoints = Math.round(basePoints * multiplier * 2) / 2; // 0.5刻みに丸める
 
   await db
@@ -810,6 +858,49 @@ export async function getCardsDueForExpiryReminder(
 export async function markCardReminderSent(db: D1Database, cardId: string): Promise<void> {
   await db.prepare(`UPDATE user_cards SET expiry_reminder_sent_at = ?, updated_at = ? WHERE id = ?`)
     .bind(jstNow(), jstNow(), cardId).run();
+}
+
+export interface FriendAnniversaryReminderCandidate {
+  friend_id: string;
+  line_account_id: string;
+  line_user_id: string;
+  channel_access_token: string;
+  friend_created_at: string;
+  friend_anniversary_reminder_message: string | null;
+  last_sent_month: string | null;
+}
+
+/** 友だち登録記念日ボーナスが有効なアカウントの、スタンプカードを持つ友だち一覧 (リマインド判定はJS側で行う)。 */
+export async function getFriendAnniversaryReminderCandidates(db: D1Database): Promise<FriendAnniversaryReminderCandidate[]> {
+  const result = await db
+    .prepare(
+      `SELECT uc.friend_id, uc.line_account_id, f.line_user_id, f.created_at AS friend_created_at,
+              la.channel_access_token, cs.friend_anniversary_reminder_message, far.last_sent_month
+         FROM user_cards uc
+         INNER JOIN friends f ON f.id = uc.friend_id
+         INNER JOIN line_accounts la ON la.id = uc.line_account_id
+         INNER JOIN card_settings cs ON cs.line_account_id = uc.line_account_id
+         LEFT JOIN friend_anniversary_reminders far ON far.friend_id = uc.friend_id AND far.line_account_id = uc.line_account_id
+        WHERE cs.friend_anniversary_multiplier_enabled = 1`,
+    )
+    .all<FriendAnniversaryReminderCandidate>();
+  return result.results;
+}
+
+export async function markFriendAnniversaryReminderSent(
+  db: D1Database,
+  friendId: string,
+  lineAccountId: string,
+  yearMonth: string,
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO friend_anniversary_reminders (friend_id, line_account_id, last_sent_month)
+       VALUES (?, ?, ?)
+       ON CONFLICT (friend_id, line_account_id) DO UPDATE SET last_sent_month = excluded.last_sent_month`,
+    )
+    .bind(friendId, lineAccountId, yearMonth)
+    .run();
 }
 
 /** 期限切れカードを expired にする (6hごとのexpirer cronから呼ぶ)。 */

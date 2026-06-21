@@ -17,6 +17,7 @@ import {
   getCardRankMilestones,
   getIssuedMilestoneIds,
   getCouponTemplateById,
+  setFriendBirthday,
 } from '@line-crm/db';
 import { verifyCallerLineUserId } from '../services/liff-auth.js';
 import { sendExtensionConfirmed, sendExtensionAlreadyUsed } from '../services/card-coupon-notifier.js';
@@ -40,9 +41,9 @@ async function resolveAccountIdFromLiff(c: Context<Env>): Promise<string | null>
 
 async function resolveFriend(c: Context<Env>, accountId: string, lineUserId: string) {
   return c.env.DB
-    .prepare(`SELECT id, line_account_id FROM friends WHERE line_user_id = ? AND line_account_id = ?`)
+    .prepare(`SELECT id, line_account_id, birthday_year, birthday_month, birthday_day FROM friends WHERE line_user_id = ? AND line_account_id = ?`)
     .bind(lineUserId, accountId)
-    .first<{ id: string; line_account_id: string }>();
+    .first<{ id: string; line_account_id: string; birthday_year: number | null; birthday_month: number | null; birthday_day: number | null }>();
 }
 
 // GET /api/liff/cards/me — 現在の友だちのスタンプカード状態 (画面表示用)
@@ -114,7 +115,28 @@ cardCoupon.get('/api/liff/cards/me', async (c) => {
     stampImageUrl: settings?.stamp_image_url ?? null,
     rankBadgeLayout: settings?.rank_badge_layout ?? 'split',
     stampAngleEnabled: settings?.stamp_angle_enabled !== 0,
+    birthday: friend.birthday_month != null && friend.birthday_day != null
+      ? { year: friend.birthday_year, month: friend.birthday_month, day: friend.birthday_day }
+      : null,
   });
+});
+
+// POST /api/liff/friends/me/birthday — お客様が自分の誕生日を登録/編集する (誕生月クーポンの自動発行に使う)
+cardCoupon.post('/api/liff/friends/me/birthday', async (c) => {
+  const accountId = await resolveAccountIdFromLiff(c);
+  if (!accountId) return bad(c, 'liff_account_resolution_failed', 400);
+  const callerLineUserId = await verifyCallerLineUserId(c.req.header('Authorization'), c.env);
+  if (!callerLineUserId) return bad(c, 'unauthorized', 401);
+  const friend = await resolveFriend(c, accountId, callerLineUserId);
+  if (!friend) return bad(c, 'friend_not_found', 404);
+
+  const body = await c.req.json<{ year?: number | null; month: number; day: number }>();
+  if (!body.month || !body.day || body.month < 1 || body.month > 12 || body.day < 1 || body.day > 31) {
+    return bad(c, 'invalid_birthday', 400);
+  }
+
+  await setFriendBirthday(c.env.DB, friend.id, { year: body.year ?? null, month: body.month, day: body.day });
+  return c.json({ success: true });
 });
 
 // GET /api/liff/coupons/me — 保有クーポン一覧 (既定: unused のみ)

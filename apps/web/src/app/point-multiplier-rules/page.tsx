@@ -13,6 +13,8 @@ const COMBINATION_MODE_LABELS: Record<CardSettings['multiplier_combination_mode'
   sum_all: '同時にマッチした全ルールの倍率を足し合わせる（例: 2倍 + 1.5倍 = 3.5倍）',
 }
 
+const DEFAULT_ANNIVERSARY_MESSAGE = 'もうすぐ{day}日はあなただけのポイント倍率アップ日です！ぜひご来店ください🎉'
+
 const CONDITION_LABELS: Record<PointMultiplierRule['condition_type'], string> = {
   manual: '手動 (このスイッチがそのままON/OFF)',
   weather: '天候 (このスイッチがそのままON/OFF)',
@@ -176,6 +178,11 @@ export default function PointMultiplierRulesPage() {
   const [editForm, setEditForm] = useState<RuleForm>(EMPTY_FORM)
   const [combinationMode, setCombinationMode] = useState<CardSettings['multiplier_combination_mode']>('highest_priority_only')
   const [savingMode, setSavingMode] = useState(false)
+  const [anniversaryEnabled, setAnniversaryEnabled] = useState(0)
+  const [anniversaryMultiplier, setAnniversaryMultiplier] = useState(1.5)
+  const [anniversaryMessage, setAnniversaryMessage] = useState(DEFAULT_ANNIVERSARY_MESSAGE)
+  const [savingAnniversary, setSavingAnniversary] = useState(false)
+  const [anniversarySaved, setAnniversarySaved] = useState(false)
 
   async function load() {
     if (!selectedAccount) return
@@ -186,7 +193,12 @@ export default function PointMultiplierRulesPage() {
     ])
     if (rulesRes.success) setRules(rulesRes.data)
     else setError(rulesRes.error)
-    if (settingsRes.success) setCombinationMode(settingsRes.data.multiplier_combination_mode)
+    if (settingsRes.success) {
+      setCombinationMode(settingsRes.data.multiplier_combination_mode)
+      setAnniversaryEnabled(settingsRes.data.friend_anniversary_multiplier_enabled)
+      setAnniversaryMultiplier(settingsRes.data.friend_anniversary_multiplier_value)
+      setAnniversaryMessage(settingsRes.data.friend_anniversary_reminder_message || DEFAULT_ANNIVERSARY_MESSAGE)
+    }
     setLoading(false)
   }
 
@@ -200,6 +212,22 @@ export default function PointMultiplierRulesPage() {
       await api.cardSettings.update(selectedAccount.id, { multiplier_combination_mode: mode })
     } finally {
       setSavingMode(false)
+    }
+  }
+
+  async function saveAnniversarySettings() {
+    if (!selectedAccount) return
+    setSavingAnniversary(true)
+    setAnniversarySaved(false)
+    try {
+      await api.cardSettings.update(selectedAccount.id, {
+        friend_anniversary_multiplier_enabled: anniversaryEnabled,
+        friend_anniversary_multiplier_value: anniversaryMultiplier,
+        friend_anniversary_reminder_message: anniversaryMessage,
+      })
+      setAnniversarySaved(true)
+    } finally {
+      setSavingAnniversary(false)
     }
   }
 
@@ -289,6 +317,49 @@ export default function PointMultiplierRulesPage() {
           >
             {Object.entries(COMBINATION_MODE_LABELS).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
           </select>
+        </div>
+
+        <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-3">
+          <h2 className="text-sm font-bold text-gray-900">ご登録記念日ボーナス</h2>
+          <p className="text-xs text-gray-500">
+            お客様ごとの「友だち追加日」の日にちに毎月だけ適用される、個別のポイント倍率です（31日等その月に存在しない日は前日に繰り上がります）。
+            上の「複数ルールの合算方式」が「優先度が最も高い1件のみ」の場合、他のルールが何もマッチしない日にだけ救済として適用されます。
+          </p>
+          <div className="flex items-center gap-3">
+            <select
+              value={anniversaryEnabled ? '1' : '0'}
+              onChange={(e) => setAnniversaryEnabled(Number(e.target.value))}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            >
+              <option value="0">OFF</option>
+              <option value="1">ON</option>
+            </select>
+            <span className="text-sm text-gray-600">倍率</span>
+            <input
+              type="number"
+              step={0.5}
+              min={0.5}
+              value={anniversaryMultiplier}
+              onChange={(e) => setAnniversaryMultiplier(Number(e.target.value))}
+              className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            />
+            <span className="text-sm text-gray-600">倍</span>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">3日前リマインドの文言（{'{day}'}は記念日の日付に置き換わります）</label>
+            <textarea
+              value={anniversaryMessage}
+              onChange={(e) => setAnniversaryMessage(e.target.value)}
+              rows={3}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <button onClick={saveAnniversarySettings} disabled={savingAnniversary} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
+              {savingAnniversary ? '保存中...' : '保存する'}
+            </button>
+            {anniversarySaved && <span className="text-sm text-emerald-700">保存しました</span>}
+          </div>
         </div>
 
         <div className="space-y-2">

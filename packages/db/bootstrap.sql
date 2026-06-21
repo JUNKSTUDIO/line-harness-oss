@@ -266,7 +266,7 @@ CREATE TABLE card_settings (
   card_expiry_penalty_type IN ('none', 'reset_to_start', 'drop_to_rank', 'drop_one_level', 'reissue')
 ), card_expiry_penalty_target_rank_id TEXT REFERENCES card_ranks(id) ON DELETE SET NULL, multiplier_combination_mode TEXT NOT NULL DEFAULT 'highest_priority_only' CHECK (
   multiplier_combination_mode IN ('highest_priority_only', 'multiply_all', 'sum_all')
-),
+), friend_anniversary_multiplier_enabled INTEGER NOT NULL DEFAULT 0, friend_anniversary_multiplier_value REAL NOT NULL DEFAULT 1.5, friend_anniversary_reminder_message TEXT, birthday_coupon_enabled INTEGER NOT NULL DEFAULT 0, birthday_coupon_template_id TEXT REFERENCES coupon_templates(id) ON DELETE SET NULL,
   CHECK (stamp_rule_type != 'per_amount' OR amount_per_stamp IS NOT NULL)
 );
 
@@ -310,7 +310,7 @@ CREATE TABLE coupon_templates (
   message_template_id   TEXT REFERENCES message_templates(id) ON DELETE SET NULL,
   is_active             INTEGER NOT NULL DEFAULT 1,
   created_at            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
-  updated_at            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')), image_url TEXT,
+  updated_at            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')), image_url TEXT, usage_policy TEXT NOT NULL DEFAULT 'single_use' CHECK (usage_policy IN ('single_use', 'unlimited_in_period')),
   CHECK (
     (validity_type = 'relative_days' AND validity_days IS NOT NULL) OR
     (validity_type = 'absolute_date' AND absolute_expires_at IS NOT NULL)
@@ -444,6 +444,22 @@ CREATE TABLE forms (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 , on_submit_message_type TEXT CHECK (on_submit_message_type IN ('text', 'flex')) DEFAULT NULL, on_submit_message_content TEXT DEFAULT NULL, on_submit_webhook_url TEXT, on_submit_webhook_headers TEXT, on_submit_webhook_fail_message TEXT, og_title TEXT, og_description TEXT, og_image_url TEXT);
 
+CREATE TABLE friend_anniversary_reminders (
+  friend_id       TEXT NOT NULL REFERENCES friends(id) ON DELETE CASCADE,
+  line_account_id TEXT NOT NULL REFERENCES line_accounts(id) ON DELETE CASCADE,
+  last_sent_month TEXT NOT NULL,
+  PRIMARY KEY (friend_id, line_account_id)
+);
+
+CREATE TABLE friend_birthday_coupon_log (
+  friend_id        TEXT NOT NULL REFERENCES friends(id) ON DELETE CASCADE,
+  line_account_id  TEXT NOT NULL REFERENCES line_accounts(id) ON DELETE CASCADE,
+  year             INTEGER NOT NULL,
+  issued_coupon_id TEXT REFERENCES user_coupons(id) ON DELETE SET NULL,
+  created_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  PRIMARY KEY (friend_id, line_account_id, year)
+);
+
 CREATE TABLE friend_reminder_deliveries (
   id                TEXT PRIMARY KEY,
   friend_reminder_id TEXT NOT NULL REFERENCES friend_reminders (id) ON DELETE CASCADE,
@@ -501,7 +517,7 @@ CREATE TABLE friends (
   score            INTEGER NOT NULL DEFAULT 0,
   created_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
   updated_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
-, ref_code TEXT, metadata TEXT NOT NULL DEFAULT '{}', line_account_id TEXT REFERENCES line_accounts(id), first_tracked_link_id TEXT REFERENCES tracked_links (id) ON DELETE SET NULL);
+, ref_code TEXT, metadata TEXT NOT NULL DEFAULT '{}', line_account_id TEXT REFERENCES line_accounts(id), first_tracked_link_id TEXT REFERENCES tracked_links (id) ON DELETE SET NULL, birthday_year INTEGER, birthday_month INTEGER CHECK (birthday_month IS NULL OR (birthday_month BETWEEN 1 AND 12)), birthday_day INTEGER CHECK (birthday_day IS NULL OR (birthday_day BETWEEN 1 AND 31)));
 
 CREATE TABLE google_calendar_connections (
   id            TEXT PRIMARY KEY,
@@ -921,6 +937,13 @@ CREATE TABLE user_cards (
   UNIQUE (friend_id, line_account_id)
 );
 
+CREATE TABLE user_coupon_redemptions (
+  id                  TEXT PRIMARY KEY,
+  user_coupon_id      TEXT NOT NULL REFERENCES user_coupons(id) ON DELETE CASCADE,
+  redeemed_by_staff_id TEXT REFERENCES staff(id) ON DELETE SET NULL,
+  redeemed_at         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
+);
+
 CREATE TABLE user_coupons (
   id                      TEXT PRIMARY KEY,
   friend_id               TEXT NOT NULL REFERENCES friends(id) ON DELETE CASCADE,
@@ -939,7 +962,7 @@ CREATE TABLE user_coupons (
   expiry_reminder_sent_at TEXT,                          -- 期限前リマインド済みマーカー
   created_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
   updated_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
-, coupon_name_at_issuance TEXT, coupon_description_at_issuance TEXT, coupon_image_url_at_issuance TEXT);
+, coupon_name_at_issuance TEXT, coupon_description_at_issuance TEXT, coupon_image_url_at_issuance TEXT, usage_policy TEXT NOT NULL DEFAULT 'single_use' CHECK (usage_policy IN ('single_use', 'unlimited_in_period')));
 
 CREATE TABLE users (
   id           TEXT PRIMARY KEY,
@@ -1122,6 +1145,8 @@ CREATE INDEX idx_user_card_milestone_coupons_card ON user_card_milestone_coupons
 CREATE INDEX idx_user_cards_friend ON user_cards (friend_id);
 
 CREATE INDEX idx_user_cards_status_expires ON user_cards (status, expires_at);
+
+CREATE INDEX idx_user_coupon_redemptions_coupon ON user_coupon_redemptions (user_coupon_id, redeemed_at);
 
 CREATE INDEX idx_user_coupons_friend ON user_coupons (friend_id);
 
