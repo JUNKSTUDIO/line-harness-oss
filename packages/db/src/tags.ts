@@ -50,6 +50,35 @@ export async function deleteTag(db: D1Database, id: string): Promise<void> {
   await db.prepare(`DELETE FROM tags WHERE id = ?`).bind(id).run();
 }
 
+export interface UpdateTagInput {
+  name?: string;
+  color?: string;
+}
+
+export async function updateTag(
+  db: D1Database,
+  id: string,
+  input: UpdateTagInput,
+): Promise<Tag | null> {
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  if (input.name !== undefined) {
+    sets.push('name = ?');
+    values.push(input.name);
+  }
+  if (input.color !== undefined) {
+    sets.push('color = ?');
+    values.push(input.color);
+  }
+  if (sets.length > 0) {
+    await db
+      .prepare(`UPDATE tags SET ${sets.join(', ')} WHERE id = ?`)
+      .bind(...values, id)
+      .run();
+  }
+  return db.prepare(`SELECT * FROM tags WHERE id = ?`).bind(id).first<Tag>();
+}
+
 export async function addTagToFriend(
   db: D1Database,
   friendId: string,

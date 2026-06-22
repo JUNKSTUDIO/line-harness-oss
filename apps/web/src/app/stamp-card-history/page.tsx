@@ -1,15 +1,17 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Header from '@/components/layout/header'
 import { api, type FriendListItem, type StampCardHistory, type CouponTemplate } from '@/lib/api'
 import { useAccount } from '@/contexts/account-context'
+import type { Tag } from '@line-crm/shared'
 
 const COUPON_STATUS_LABEL: Record<StampCardHistory['coupons'][number]['status'], string> = {
   unused: '未使用', used: '使用済み', expired: '期限切れ',
 }
 
 const ROLE_LEVEL: Record<'owner' | 'admin' | 'staff', number> = { staff: 1, admin: 2, owner: 3 }
+const PAGE_SIZE = 20
 
 function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString('ja-JP', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -18,7 +20,12 @@ function formatDateTime(iso: string): string {
 export default function StampCardHistoryPage() {
   const { selectedAccount, loading: accountLoading } = useAccount()
   const [search, setSearch] = useState('')
+  const [searchSubmitted, setSearchSubmitted] = useState('')
+  const [tags, setTags] = useState<Tag[]>([])
+  const [selectedTagId, setSelectedTagId] = useState('')
   const [results, setResults] = useState<FriendListItem[]>([])
+  const [offset, setOffset] = useState(0)
+  const [hasNextPage, setHasNextPage] = useState(false)
   const [searching, setSearching] = useState(false)
   const [selected, setSelected] = useState<FriendListItem | null>(null)
   const [history, setHistory] = useState<StampCardHistory | null>(null)
@@ -38,28 +45,56 @@ export default function StampCardHistoryPage() {
 
   useEffect(() => {
     if (!selectedAccount) return
-    Promise.all([api.staff.me(), api.cardSettings.get(selectedAccount.id), api.couponTemplates.list(selectedAccount.id)]).then(
-      ([meRes, settingsRes, templatesRes]) => {
-        if (meRes.success && settingsRes.success) {
-          const role = meRes.data.role as 'owner' | 'admin' | 'staff'
-          setCanRemoteGrant(ROLE_LEVEL[role] >= ROLE_LEVEL[settingsRes.data.remote_grant_min_role])
-        }
-        if (templatesRes.success) setCouponTemplates(templatesRes.data.filter((t) => t.is_active))
-      },
-    )
+    Promise.all([
+      api.staff.me(),
+      api.cardSettings.get(selectedAccount.id),
+      api.couponTemplates.list(selectedAccount.id),
+      api.tags.list(),
+    ]).then(([meRes, settingsRes, templatesRes, tagsRes]) => {
+      if (meRes.success && settingsRes.success) {
+        const role = meRes.data.role as 'owner' | 'admin' | 'staff'
+        setCanRemoteGrant(ROLE_LEVEL[role] >= ROLE_LEVEL[settingsRes.data.remote_grant_min_role])
+      }
+      if (templatesRes.success) setCouponTemplates(templatesRes.data.filter((t) => t.is_active))
+      if (tagsRes.success) setTags(tagsRes.data)
+    })
   }, [selectedAccount])
 
-  async function doSearch() {
-    if (!selectedAccount || !search) return
-    setSearching(true)
-    setError('')
-    try {
-      const res = await api.friends.list({ accountId: selectedAccount.id, search, limit: 20 })
-      if (res.success) setResults(res.data.items)
-      else setError(res.error)
-    } finally {
-      setSearching(false)
-    }
+  // 表示名検索・タグ絞り込みの両方に対応した友だち一覧。検索語が空でも一覧を
+  // 読み込む（タグ一覧から選ぶだけで使えるように、表示名の入力を必須にしない）。
+  const loadFriends = useCallback(
+    async (newOffset: number) => {
+      if (!selectedAccount) return
+      setSearching(true)
+      setError('')
+      try {
+        const res = await api.friends.list({
+          accountId: selectedAccount.id,
+          search: searchSubmitted || undefined,
+          tagId: selectedTagId || undefined,
+          limit: PAGE_SIZE,
+          offset: String(newOffset),
+        })
+        if (res.success) {
+          setResults(res.data.items)
+          setOffset(newOffset)
+          setHasNextPage(res.data.hasNextPage)
+        } else {
+          setError(res.error)
+        }
+      } finally {
+        setSearching(false)
+      }
+    },
+    [selectedAccount, searchSubmitted, selectedTagId],
+  )
+
+  useEffect(() => {
+    loadFriends(0)
+  }, [loadFriends])
+
+  function submitSearch() {
+    setSearchSubmitted(search.trim())
   }
 
   async function selectFriend(friend: FriendListItem) {
@@ -137,33 +172,69 @@ export default function StampCardHistoryPage() {
       <div className="p-6 max-w-3xl space-y-4">
         {error && <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg text-sm">{error}</div>}
 
-        <div className="flex gap-2">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') doSearch() }}
-            placeholder="表示名で検索"
-            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
-          />
-          <button onClick={doSearch} disabled={searching || !search} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
-            検索
-          </button>
-        </div>
+        {!selected && (
+          <>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') submitSearch() }}
+                placeholder="表示名で検索（空欄でも一覧表示・タグだけで絞り込み可）"
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              />
+              <select
+                value={selectedTagId}
+                onChange={(e) => setSelectedTagId(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+              >
+                <option value="">タグ: すべて</option>
+                {tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
+              </select>
+              <button onClick={submitSearch} disabled={searching} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 whitespace-nowrap">
+                検索
+              </button>
+            </div>
 
-        {results.length > 0 && !selected && (
-          <ul className="bg-white border border-gray-200 rounded-xl divide-y divide-gray-100">
-            {results.map((friend) => (
-              <li key={friend.id}>
-                <button onClick={() => selectFriend(friend)} className="w-full text-left px-4 py-3 text-sm hover:bg-gray-50 flex items-center gap-3">
-                  {friend.pictureUrl && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={friend.pictureUrl} alt="" className="w-8 h-8 rounded-full object-cover" />
-                  )}
-                  <span>{friend.displayName}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+            {searching ? (
+              <div className="text-sm text-gray-500 text-center py-4">読み込み中...</div>
+            ) : results.length === 0 ? (
+              <div className="text-sm text-gray-400 text-center py-4">該当する友だちがいません</div>
+            ) : (
+              <>
+                <ul className="bg-white border border-gray-200 rounded-xl divide-y divide-gray-100">
+                  {results.map((friend) => (
+                    <li key={friend.id}>
+                      <button onClick={() => selectFriend(friend)} className="w-full text-left px-4 py-3 text-sm hover:bg-gray-50 flex items-center gap-3">
+                        {friend.pictureUrl && (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={friend.pictureUrl} alt="" className="w-8 h-8 rounded-full object-cover" />
+                        )}
+                        <span>{friend.displayName}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                {(offset > 0 || hasNextPage) && (
+                  <div className="flex items-center justify-between text-sm">
+                    <button
+                      onClick={() => loadFriends(Math.max(0, offset - PAGE_SIZE))}
+                      disabled={offset === 0 || searching}
+                      className="text-gray-600 hover:underline disabled:opacity-30 disabled:hover:no-underline"
+                    >
+                      ← 前へ
+                    </button>
+                    <button
+                      onClick={() => loadFriends(offset + PAGE_SIZE)}
+                      disabled={!hasNextPage || searching}
+                      className="text-gray-600 hover:underline disabled:opacity-30 disabled:hover:no-underline"
+                    >
+                      次へ →
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </>
         )}
 
         {selected && (

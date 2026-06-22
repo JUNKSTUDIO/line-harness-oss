@@ -14,6 +14,10 @@ export default function TagsPage() {
   const [name, setName] = useState('')
   const [color, setColor] = useState(DEFAULT_COLOR)
   const [creating, setCreating] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editColor, setEditColor] = useState(DEFAULT_COLOR)
+  const [saving, setSaving] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -51,6 +55,29 @@ export default function TagsPage() {
     const res = await api.tags.delete(tag.id)
     if (res.success) await load()
     else setError(res.error)
+  }
+
+  function startEdit(tag: Tag) {
+    setEditingId(tag.id)
+    setEditName(tag.name)
+    setEditColor(tag.color)
+  }
+
+  async function saveEdit() {
+    if (!editingId || !editName.trim()) return
+    setSaving(true)
+    setError('')
+    try {
+      const res = await api.tags.update(editingId, { name: editName.trim(), color: editColor })
+      if (res.success) {
+        setEditingId(null)
+        await load()
+      } else {
+        setError(res.error)
+      }
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -95,16 +122,54 @@ export default function TagsPage() {
         ) : (
           <ul className="bg-white border border-gray-200 rounded-xl divide-y divide-gray-100">
             {tags.map((tag) => (
-              <li key={tag.id} className="flex items-center justify-between px-4 py-3">
-                <span
-                  className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium"
-                  style={{ backgroundColor: `${tag.color}22`, color: tag.color }}
-                >
-                  {tag.name}
-                </span>
-                <button onClick={() => remove(tag)} className="text-xs text-red-600 hover:underline">
-                  削除
-                </button>
+              <li key={tag.id} className="flex items-center justify-between px-4 py-3 gap-3">
+                {editingId === tag.id ? (
+                  <>
+                    <div className="flex items-center gap-2 flex-1">
+                      <input
+                        type="color"
+                        value={editColor}
+                        onChange={(e) => setEditColor(e.target.value)}
+                        className="w-8 h-8 rounded border border-gray-300 cursor-pointer shrink-0"
+                      />
+                      <input
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') saveEdit() }}
+                        className="flex-1 border border-gray-300 rounded-lg px-2 py-1 text-sm"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={saveEdit}
+                        disabled={saving || !editName.trim()}
+                        className="text-xs text-emerald-700 hover:underline disabled:opacity-50"
+                      >
+                        保存
+                      </button>
+                      <button onClick={() => setEditingId(null)} className="text-xs text-gray-500 hover:underline">
+                        キャンセル
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <span
+                      className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium"
+                      style={{ backgroundColor: `${tag.color}22`, color: tag.color }}
+                    >
+                      {tag.name}
+                    </span>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <button onClick={() => startEdit(tag)} className="text-xs text-gray-600 hover:underline">
+                        編集
+                      </button>
+                      <button onClick={() => remove(tag)} className="text-xs text-red-600 hover:underline">
+                        削除
+                      </button>
+                    </div>
+                  </>
+                )}
               </li>
             ))}
           </ul>
