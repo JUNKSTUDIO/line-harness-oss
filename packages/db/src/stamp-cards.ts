@@ -37,6 +37,7 @@ export interface CardSettingsRow {
   weather_check_anchor_time: string;
   weather_last_checked_at: string | null;
   rank_badge_layout: 'split' | 'background';
+  remote_grant_min_role: 'owner' | 'admin' | 'staff';
   created_at: string;
   updated_at: string;
 }
@@ -125,8 +126,9 @@ export async function upsertCardSettings(
            reminder_days_before, reminder_reservation_button_label, reminder_reservation_helper_text, reminder_extend_button_label,
            reservation_url, stamp_image_url, shop_latitude, shop_longitude,
            shop_address, weather_check_interval_minutes, weather_check_anchor_time, rank_badge_layout,
+           remote_grant_min_role,
            created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         lineAccountId,
@@ -161,6 +163,7 @@ export async function upsertCardSettings(
         input.weather_check_interval_minutes ?? 30,
         input.weather_check_anchor_time ?? '00:00',
         input.rank_badge_layout ?? 'split',
+        input.remote_grant_min_role ?? 'owner',
         now,
         now,
       )
@@ -718,6 +721,8 @@ export async function grantStamp(
     grantedByStaffId?: string;
     /** スタッフ端末の「ポイント数」入力欄からの直接指定 (0.5刻み)。指定時は per_visit の既定値1を上書きする。 */
     manualBasePoints?: number;
+    /** 管理画面からの遠隔付与用 — true なら倍率ルール/記念日ボーナスを一切適用せず、basePointsをそのまま付与する。 */
+    skipMultiplier?: boolean;
     now?: Date;
   },
 ): Promise<GrantStampResult> {
@@ -735,17 +740,23 @@ export async function grantStamp(
     basePoints = Math.floor((params.amountYen ?? 0) / unit);
   }
 
-  // 友だち登録記念日ボーナス: そのお客様の「友だち追加日」を基準にした毎月の記念日にだけ成立する個別倍率。
-  let anniversaryMatch: { name: string; multiplier: number } | null = null;
-  if (settings?.friend_anniversary_multiplier_enabled) {
-    const friend = await getFriendById(db, params.friendId);
-    if (friend && isFriendAnniversaryDate(friend.created_at, now)) {
-      anniversaryMatch = { name: 'ご登録記念日ボーナス', multiplier: settings.friend_anniversary_multiplier_value };
+  let multiplier = 1;
+  let ruleId: string | null = null;
+  if (!params.skipMultiplier) {
+    // 友だち登録記念日ボーナス: そのお客様の「友だち追加日」を基準にした毎月の記念日にだけ成立する個別倍率。
+    let anniversaryMatch: { name: string; multiplier: number } | null = null;
+    if (settings?.friend_anniversary_multiplier_enabled) {
+      const friend = await getFriendById(db, params.friendId);
+      if (friend && isFriendAnniversaryDate(friend.created_at, now)) {
+        anniversaryMatch = { name: 'ご登録記念日ボーナス', multiplier: settings.friend_anniversary_multiplier_value };
+      }
     }
-  }
 
-  const rules = await getPointMultiplierRules(db, params.lineAccountId);
-  const { multiplier, ruleId } = resolveActiveMultiplier(rules, now, settings?.multiplier_combination_mode, anniversaryMatch);
+    const rules = await getPointMultiplierRules(db, params.lineAccountId);
+    const resolved = resolveActiveMultiplier(rules, now, settings?.multiplier_combination_mode, anniversaryMatch);
+    multiplier = resolved.multiplier;
+    ruleId = resolved.ruleId;
+  }
   const finalPoints = Math.round(basePoints * multiplier * 2) / 2; // 0.5刻みに丸める
 
   await db

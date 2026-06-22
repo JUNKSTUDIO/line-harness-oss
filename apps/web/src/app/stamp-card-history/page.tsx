@@ -1,13 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Header from '@/components/layout/header'
-import { api, type FriendListItem, type StampCardHistory } from '@/lib/api'
+import { api, type FriendListItem, type StampCardHistory, type CouponTemplate } from '@/lib/api'
 import { useAccount } from '@/contexts/account-context'
 
 const COUPON_STATUS_LABEL: Record<StampCardHistory['coupons'][number]['status'], string> = {
   unused: '未使用', used: '使用済み', expired: '期限切れ',
 }
+
+const ROLE_LEVEL: Record<'owner' | 'admin' | 'staff', number> = { staff: 1, admin: 2, owner: 3 }
 
 function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString('ja-JP', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -22,6 +24,30 @@ export default function StampCardHistoryPage() {
   const [history, setHistory] = useState<StampCardHistory | null>(null)
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [error, setError] = useState('')
+
+  // 管理画面からの遠隔ポイント付与・クーポン発行。表示するかどうかは現在ログイン中の
+  // スタッフのロールと、card_settings.remote_grant_min_role の比較で決める
+  // (最終的な防御はAPI側の403。ここではUXのため事前に隠す)。
+  const [canRemoteGrant, setCanRemoteGrant] = useState(false)
+  const [couponTemplates, setCouponTemplates] = useState<CouponTemplate[]>([])
+  const [grantPointsInput, setGrantPointsInput] = useState('1')
+  const [granting, setGranting] = useState(false)
+  const [selectedCouponTemplateId, setSelectedCouponTemplateId] = useState('')
+  const [issuingCoupon, setIssuingCoupon] = useState(false)
+  const [actionMessage, setActionMessage] = useState('')
+
+  useEffect(() => {
+    if (!selectedAccount) return
+    Promise.all([api.staff.me(), api.cardSettings.get(selectedAccount.id), api.couponTemplates.list(selectedAccount.id)]).then(
+      ([meRes, settingsRes, templatesRes]) => {
+        if (meRes.success && settingsRes.success) {
+          const role = meRes.data.role as 'owner' | 'admin' | 'staff'
+          setCanRemoteGrant(ROLE_LEVEL[role] >= ROLE_LEVEL[settingsRes.data.remote_grant_min_role])
+        }
+        if (templatesRes.success) setCouponTemplates(templatesRes.data.filter((t) => t.is_active))
+      },
+    )
+  }, [selectedAccount])
 
   async function doSearch() {
     if (!selectedAccount || !search) return
@@ -40,6 +66,7 @@ export default function StampCardHistoryPage() {
     if (!selectedAccount) return
     setSelected(friend)
     setHistory(null)
+    setActionMessage('')
     setLoadingHistory(true)
     setError('')
     try {
@@ -48,6 +75,52 @@ export default function StampCardHistoryPage() {
       else setError(res.error)
     } finally {
       setLoadingHistory(false)
+    }
+  }
+
+  async function refreshHistory() {
+    if (!selectedAccount || !selected) return
+    const res = await api.stampCardHistory.get(selected.id, selectedAccount.id)
+    if (res.success) setHistory(res.data)
+  }
+
+  async function doGrantPoints() {
+    if (!selectedAccount || !selected) return
+    const points = Number(grantPointsInput)
+    if (!Number.isFinite(points) || points <= 0) return
+    setGranting(true)
+    setActionMessage('')
+    setError('')
+    try {
+      const res = await api.stampCardHistory.grantPoints(selected.id, selectedAccount.id, points)
+      if (res.success) {
+        setActionMessage(`${points}pt 付与しました（現在 ${res.data.stampCount}pt）${res.data.issuedCoupon ? ' ・ ランク到達クーポンを発行しました' : ''}${res.data.milestoneCouponNames.length > 0 ? ` ・ ${res.data.milestoneCouponNames.join('、')}を発行しました` : ''}`)
+        await refreshHistory()
+      } else {
+        setError(res.error)
+      }
+    } finally {
+      setGranting(false)
+    }
+  }
+
+  async function doIssueCoupon() {
+    if (!selectedAccount || !selected || !selectedCouponTemplateId) return
+    setIssuingCoupon(true)
+    setActionMessage('')
+    setError('')
+    try {
+      const res = await api.stampCardHistory.issueCoupon(selected.id, selectedAccount.id, selectedCouponTemplateId)
+      if (res.success) {
+        const name = couponTemplates.find((t) => t.id === selectedCouponTemplateId)?.name ?? 'クーポン'
+        setActionMessage(`「${name}」を発行しました`)
+        setSelectedCouponTemplateId('')
+        await refreshHistory()
+      } else {
+        setError(res.error)
+      }
+    } finally {
+      setIssuingCoupon(false)
     }
   }
 
@@ -122,6 +195,57 @@ export default function StampCardHistoryPage() {
                     <div className="text-sm text-gray-400">スタンプカードはまだ発行されていません</div>
                   )}
                 </div>
+
+                {actionMessage && (
+                  <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 p-3 rounded-lg text-sm">{actionMessage}</div>
+                )}
+
+                {canRemoteGrant && (
+                  <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
+                    <h2 className="text-sm font-bold text-gray-900">遠隔付与（QRコード読み取り不要）</h2>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5">ポイントを付与する</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          step={0.5}
+                          min={0.5}
+                          value={grantPointsInput}
+                          onChange={(e) => setGrantPointsInput(e.target.value)}
+                          className="w-28 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                        />
+                        <button
+                          onClick={doGrantPoints}
+                          disabled={granting}
+                          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                        >
+                          {granting ? '付与中...' : '付与する'}
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-1">倍率ルールは適用されず、入力した数値がそのまま付与されます。</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5">クーポンを発行する</label>
+                      <div className="flex gap-2">
+                        <select
+                          value={selectedCouponTemplateId}
+                          onChange={(e) => setSelectedCouponTemplateId(e.target.value)}
+                          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                        >
+                          <option value="">クーポンを選択...</option>
+                          {couponTemplates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                        </select>
+                        <button
+                          onClick={doIssueCoupon}
+                          disabled={issuingCoupon || !selectedCouponTemplateId}
+                          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 whitespace-nowrap"
+                        >
+                          {issuingCoupon ? '発行中...' : '発行する'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="bg-white border border-gray-200 rounded-xl p-4">
                   <h2 className="text-sm font-bold text-gray-900 mb-3">スタンプ付与履歴</h2>

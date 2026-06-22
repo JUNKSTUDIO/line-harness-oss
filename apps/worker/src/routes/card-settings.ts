@@ -49,6 +49,7 @@ cardSettings.get('/api/card-settings', async (c) => {
       weather_check_interval_minutes: 30,
       weather_check_anchor_time: '00:00',
       rank_badge_layout: 'split',
+      remote_grant_min_role: 'owner',
     },
   });
 });

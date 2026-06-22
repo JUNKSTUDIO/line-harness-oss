@@ -162,6 +162,7 @@ export interface CardSettings {
   weather_check_anchor_time: string
   weather_last_checked_at?: string | null
   rank_badge_layout: 'split' | 'background'
+  remote_grant_min_role: 'owner' | 'admin' | 'staff'
   created_at?: string
   updated_at?: string
 }
@@ -566,6 +567,16 @@ export const api = {
   stampCardHistory: {
     get: (friendId: string, accountId: string) =>
       fetchApi<ApiResponse<StampCardHistory>>(`/api/friends/${friendId}/stamp-card-history?accountId=${accountId}`),
+    grantPoints: (friendId: string, accountId: string, points: number) =>
+      fetchApi<ApiResponse<{ stampCount: number; finalPoints: number; rankedUp: boolean; issuedCoupon: boolean; milestoneCouponNames: string[] }>>(
+        `/api/friends/${friendId}/stamp-card/grant-points`,
+        { method: 'POST', body: JSON.stringify({ accountId, points }) },
+      ),
+    issueCoupon: (friendId: string, accountId: string, couponTemplateId: string) =>
+      fetchApi<ApiResponse<{ id: string }>>(`/api/friends/${friendId}/stamp-card/issue-coupon`, {
+        method: 'POST',
+        body: JSON.stringify({ accountId, couponTemplateId }),
+      }),
   },
 
   pointMultiplierRules: {

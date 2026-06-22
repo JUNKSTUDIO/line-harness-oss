@@ -39,6 +39,7 @@ const EMPTY: CardSettings = {
   weather_check_interval_minutes: 30,
   weather_check_anchor_time: '00:00',
   rank_badge_layout: 'split',
+  remote_grant_min_role: 'owner',
 }
 
 export default function StampCardSettingsPage() {
@@ -123,6 +124,7 @@ export default function StampCardSettingsPage() {
         weather_check_interval_minutes: form.weather_check_interval_minutes,
         weather_check_anchor_time: form.weather_check_anchor_time,
         rank_badge_layout: form.rank_badge_layout,
+        remote_grant_min_role: form.remote_grant_min_role,
       })
       if (res.success) {
         setForm(res.data)
@@ -431,6 +433,23 @@ export default function StampCardSettingsPage() {
             />
             <p className="text-xs text-gray-400 mt-1">
               チェックのタイミングはこの時刻を起点に区切られます。例: 間隔1440分（1日ごと）+ 基準時刻06:00 → 毎日6:00を過ぎたタイミングで1回チェック。間隔60分（1時間ごと）なら毎時この時刻の分から区切られます（既定00:00 = 0分/正時ごと）。
+            </p>
+          </Field>
+        </Section>
+
+        <Section title="リモート操作の権限">
+          <Field label="「利用履歴」画面からの遠隔ポイント付与・クーポン発行を許可する最低権限">
+            <select
+              value={form.remote_grant_min_role}
+              onChange={(e) => set('remote_grant_min_role', e.target.value as CardSettings['remote_grant_min_role'])}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            >
+              <option value="owner">オーナーのみ（最も安全）</option>
+              <option value="admin">管理者以上（オーナー・管理者）</option>
+              <option value="staff">スタッフ以上（全員）</option>
+            </select>
+            <p className="text-xs text-gray-400 mt-1">
+              QRコードを読まずに、管理画面の「利用履歴」からお客様を検索して直接ポイント付与・クーポン発行できる機能です。ここで選んだ権限以上のスタッフだけが実行できます。
             </p>
           </Field>
         </Section>
