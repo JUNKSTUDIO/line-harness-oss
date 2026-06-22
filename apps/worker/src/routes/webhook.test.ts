@@ -31,6 +31,8 @@ vi.mock('@line-crm/db', () => ({
   getCouponTemplateById: vi.fn(),
   issueCoupon: vi.fn(),
   getLineAccountById: vi.fn(),
+  hasFriendAddCouponBeenIssued: vi.fn().mockResolvedValue(false),
+  markFriendAddCouponIssued: vi.fn(),
 }));
 
 vi.mock('@line-crm/line-sdk', async () => {
@@ -78,6 +80,8 @@ import {
   getCouponTemplateById,
   issueCoupon,
   getLineAccountById,
+  hasFriendAddCouponBeenIssued,
+  markFriendAddCouponIssued,
 } from '@line-crm/db';
 import { fireEvent } from '../services/event-bus.js';
 import { webhook } from './webhook.js';
@@ -421,6 +425,7 @@ describe('POST /webhook — follow: friend-add coupon issuance', () => {
       channelAccessToken: 'env-default-token', toLineUserId: 'U-newfriend', liffId: 'liff-1',
     }));
     expect(getCardSettings).not.toHaveBeenCalled();
+    expect(markFriendAddCouponIssued).toHaveBeenCalledWith(db, { friendId: 'friend-1', lineAccountId: 'acc-1', issuedCouponId: 'coupon-1' });
   });
 
   test('falls back to the account default coupon when there is no referral route', async () => {
@@ -467,5 +472,21 @@ describe('POST /webhook — follow: friend-add coupon issuance', () => {
 
     expect(issueCoupon).toHaveBeenCalledTimes(1);
     expect(getCardSettings).not.toHaveBeenCalled();
+  });
+
+  // ブロック→ブロック解除でLINEがfollowイベントを再送してくる実際のケースの再現。
+  test('does not re-issue when this friend has already received the friend-add coupon before (block/unblock)', async () => {
+    setupFollowMocks({ refCode: null });
+    vi.mocked(hasFriendAddCouponBeenIssued).mockResolvedValue(true);
+    vi.mocked(getCardSettings).mockResolvedValue({ friend_add_coupon_template_id: 'tpl-default' } as never);
+
+    const db = makeDbStub();
+    const res = await runFollowEvent(db);
+
+    expect(res.status).toBe(200);
+    expect(hasFriendAddCouponBeenIssued).toHaveBeenCalledWith(db, 'friend-1', 'acc-1');
+    expect(getCouponTemplateById).not.toHaveBeenCalled();
+    expect(issueCoupon).not.toHaveBeenCalled();
+    expect(cardCouponNotifierMocks.sendCouponIssuedNotification).not.toHaveBeenCalled();
   });
 });

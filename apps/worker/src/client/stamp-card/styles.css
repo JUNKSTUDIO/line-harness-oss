@@ -120,10 +120,13 @@ body.sc-active #app {
   background: #ecfdf5;
   animation: sc-stamp-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
-/* 半分スタンプ (例: 雨の日1.5倍で +0.5個) — 左半分だけスタンプを「押された」状態に見せる。 */
+/* 半分スタンプ (例: 雨の日1.5倍で +0.5個) — 左半分だけスタンプを「押された」状態に見せる。
+   .sc-stamp-slot-filled と同じ pop アニメーションを持たせないと、inline の animationDelay が
+   何にも効かず常に即表示 (=最後ではなく最初から見えてしまう) になる。 */
 .sc-stamp-fill.sc-stamp-slot-half {
   border: 2px solid #06C755;
   background: linear-gradient(90deg, #ecfdf5 50%, #f8fafc 50%);
+  animation: sc-stamp-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 .sc-stamp-slot-half .sc-stamp-image,
 .sc-stamp-slot-half .sc-stamp-mark {
@@ -170,7 +173,8 @@ body.sc-active #app {
 .sc-stamp-no-angle .sc-stamp-mark {
   transform: none;
 }
-.sc-stamp-no-angle .sc-stamp-fill.sc-stamp-slot-filled {
+.sc-stamp-no-angle .sc-stamp-fill.sc-stamp-slot-filled,
+.sc-stamp-no-angle .sc-stamp-fill.sc-stamp-slot-half {
   animation-name: sc-stamp-pop-straight;
 }
 @keyframes sc-stamp-pop-straight {

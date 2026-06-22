@@ -389,3 +389,30 @@ export async function markBirthdayCouponIssued(
     .bind(params.friendId, params.lineAccountId, params.year, params.issuedCouponId)
     .run();
 }
+
+// 友だち追加時クーポンは誕生月クーポンと違い年単位ではなく一度発行したら以後発行しない
+// (ブロック→ブロック解除でfollowイベントが再発火しても二重発行を防ぐ)。
+export async function hasFriendAddCouponBeenIssued(
+  db: D1Database,
+  friendId: string,
+  lineAccountId: string,
+): Promise<boolean> {
+  const row = await db
+    .prepare(`SELECT 1 FROM friend_add_coupon_log WHERE friend_id = ? AND line_account_id = ?`)
+    .bind(friendId, lineAccountId)
+    .first();
+  return row != null;
+}
+
+export async function markFriendAddCouponIssued(
+  db: D1Database,
+  params: { friendId: string; lineAccountId: string; issuedCouponId: string },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO friend_add_coupon_log (friend_id, line_account_id, issued_coupon_id) VALUES (?, ?, ?)
+       ON CONFLICT (friend_id, line_account_id) DO NOTHING`,
+    )
+    .bind(params.friendId, params.lineAccountId, params.issuedCouponId)
+    .run();
+}

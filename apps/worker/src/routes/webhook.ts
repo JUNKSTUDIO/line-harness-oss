@@ -23,6 +23,8 @@ import {
   getCouponTemplateById,
   issueCoupon,
   getLineAccountById,
+  hasFriendAddCouponBeenIssued,
+  markFriendAddCouponIssued,
 } from '@line-crm/db';
 import type { EntryRoute, Friend } from '@line-crm/db';
 import { fireEvent } from '../services/event-bus.js';
@@ -368,12 +370,16 @@ async function handleEvent(
     // 友だち追加時クーポン: リンク (entry_routes) 固有の設定があればそれを優先し、
     // 無ければアカウント既定 (card_settings) を使う。1回の友だち追加で1枚まで
     // (リンク優先・アカウント既定との同時発行はしない)。
+    // ブロック→ブロック解除でも follow イベントは再発火するため、同じ友だちには
+    // 二度と発行しないよう friend_add_coupon_log で永続的にdedupする。
     if (lineAccountId) {
       try {
-        const friendAddCouponTemplateId =
-          referralRoute?.coupon_template_id ??
-          (await getCardSettings(db, lineAccountId))?.friend_add_coupon_template_id ??
-          null;
+        const alreadyIssued = await hasFriendAddCouponBeenIssued(db, friend.id, lineAccountId);
+        const friendAddCouponTemplateId = alreadyIssued
+          ? null
+          : referralRoute?.coupon_template_id ??
+            (await getCardSettings(db, lineAccountId))?.friend_add_coupon_template_id ??
+            null;
         if (friendAddCouponTemplateId) {
           const template = await getCouponTemplateById(db, friendAddCouponTemplateId);
           if (template?.is_active) {
@@ -383,6 +389,7 @@ async function handleEvent(
               couponTemplateId: friendAddCouponTemplateId,
               issuedVia: 'campaign',
             });
+            await markFriendAddCouponIssued(db, { friendId: friend.id, lineAccountId, issuedCouponId: coupon.id });
             const account = await getLineAccountById(db, lineAccountId);
             if (account) {
               await sendCouponIssuedNotification({
