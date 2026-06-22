@@ -23,6 +23,7 @@ function serialize(row: EntryRoute) {
     poolId: row.pool_id,
     introTemplateId: row.intro_template_id,
     runAccountFriendAddScenarios: row.run_account_friend_add_scenarios === 1,
+    couponTemplateId: row.coupon_template_id,
     isActive: row.is_active === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -65,6 +66,7 @@ entryRoutes.post('/api/entry-routes', async (c) => {
       poolId?: string | null;
       introTemplateId?: string | null;
       runAccountFriendAddScenarios?: boolean;
+      couponTemplateId?: string | null;
       isActive?: boolean;
     }>();
     if (!body.refCode || !body.name) {
@@ -92,6 +94,7 @@ entryRoutes.patch('/api/entry-routes/:id', async (c) => {
         poolId: string | null;
         introTemplateId: string | null;
         runAccountFriendAddScenarios: boolean;
+        couponTemplateId: string | null;
         isActive: boolean;
       }>
     >();

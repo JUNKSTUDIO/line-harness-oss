@@ -17,12 +17,18 @@ interface MessageTemplate {
   messageContent: string
 }
 
+interface CouponTemplateOption {
+  id: string
+  name: string
+}
+
 interface Props {
   route: EntryRoute | null
   pools: TrafficPool[]
   scenarios: Scenario[]
   templates: MessageTemplate[]
   tags: Tag[]
+  couponTemplates: CouponTemplateOption[]
   /** Pre-filled ref_code for "register an unregistered inflow ref" flow. */
   initialRefCode?: string
   onClose: () => void
@@ -35,6 +41,7 @@ export default function EditRouteModal({
   scenarios,
   templates,
   tags,
+  couponTemplates,
   initialRefCode,
   onClose,
   onSaved,
@@ -72,6 +79,7 @@ export default function EditRouteModal({
     scenarioId: route?.scenarioId ?? null,
     introTemplateId: route?.introTemplateId ?? null,
     runAccountFriendAddScenarios: route?.runAccountFriendAddScenarios ?? true,
+    couponTemplateId: route?.couponTemplateId ?? null,
     redirectUrl: route?.redirectUrl ?? null,
     isActive: route?.isActive ?? true,
   }))
@@ -215,6 +223,24 @@ export default function EditRouteModal({
               </option>
             ))}
           </select>
+        </Field>
+
+        <Field label="友だち追加時に発行するクーポン（任意）">
+          <select
+            value={form.couponTemplateId ?? ''}
+            onChange={(e) => setForm({ ...form, couponTemplateId: e.target.value || null })}
+            className="w-full border border-gray-200 rounded px-3 py-2 text-sm"
+          >
+            <option value="">— 設定なし（アカウント既定があればそちらを使用） —</option>
+            {couponTemplates.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-gray-500 mt-1">
+            このリンク経由で友だち追加した人に発行するクーポン。設定すると、スタンプカード設定の「友だち追加時クーポン」既定値より優先されます。
+          </p>
         </Field>
 
         <label className="flex items-start gap-2 text-sm">

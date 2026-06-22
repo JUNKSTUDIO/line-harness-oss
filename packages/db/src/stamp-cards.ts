@@ -38,6 +38,7 @@ export interface CardSettingsRow {
   weather_last_checked_at: string | null;
   rank_badge_layout: 'split' | 'background';
   remote_grant_min_role: 'owner' | 'admin' | 'staff';
+  friend_add_coupon_template_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -126,9 +127,9 @@ export async function upsertCardSettings(
            reminder_days_before, reminder_reservation_button_label, reminder_reservation_helper_text, reminder_extend_button_label,
            reservation_url, stamp_image_url, shop_latitude, shop_longitude,
            shop_address, weather_check_interval_minutes, weather_check_anchor_time, rank_badge_layout,
-           remote_grant_min_role,
+           remote_grant_min_role, friend_add_coupon_template_id,
            created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         lineAccountId,
@@ -164,6 +165,7 @@ export async function upsertCardSettings(
         input.weather_check_anchor_time ?? '00:00',
         input.rank_badge_layout ?? 'split',
         input.remote_grant_min_role ?? 'owner',
+        input.friend_add_coupon_template_id ?? null,
         now,
         now,
       )

@@ -436,6 +436,7 @@ export interface EntryRoute {
   poolId: string | null;
   introTemplateId: string | null;
   runAccountFriendAddScenarios: boolean;
+  couponTemplateId: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -450,6 +451,7 @@ export interface CreateEntryRouteInput {
   poolId?: string | null;
   introTemplateId?: string | null;
   runAccountFriendAddScenarios?: boolean;
+  couponTemplateId?: string | null;
   isActive?: boolean;
 }
 

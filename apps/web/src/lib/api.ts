@@ -163,6 +163,7 @@ export interface CardSettings {
   weather_last_checked_at?: string | null
   rank_badge_layout: 'split' | 'background'
   remote_grant_min_role: 'owner' | 'admin' | 'staff'
+  friend_add_coupon_template_id: string | null
   created_at?: string
   updated_at?: string
 }

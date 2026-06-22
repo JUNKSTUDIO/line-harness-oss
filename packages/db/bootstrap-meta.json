@@ -66,7 +66,8 @@
     "058_birthday_coupon.sql",
     "059_reminder_button_labels.sql",
     "060_coupon_template_message_fk_fix.sql",
-    "061_remote_grant_permission.sql"
+    "061_remote_grant_permission.sql",
+    "062_friend_add_coupon.sql"
   ],
-  "migrationCount": 67
+  "migrationCount": 68
 }

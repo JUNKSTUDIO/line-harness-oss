@@ -9,6 +9,7 @@ export interface EntryRoute {
   pool_id: string | null;
   intro_template_id: string | null;
   run_account_friend_add_scenarios: number;
+  coupon_template_id: string | null;
   is_active: number;
   created_at: string;
   updated_at: string;
@@ -41,6 +42,7 @@ export interface CreateEntryRouteInput {
   poolId?: string | null;
   introTemplateId?: string | null;
   runAccountFriendAddScenarios?: boolean;
+  couponTemplateId?: string | null;
   isActive?: boolean;
 }
 
@@ -83,8 +85,8 @@ export async function createEntryRoute(
       `INSERT INTO entry_routes
          (id, ref_code, name, tag_id, scenario_id, redirect_url,
           pool_id, intro_template_id, run_account_friend_add_scenarios,
-          is_active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          coupon_template_id, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id,
@@ -96,6 +98,7 @@ export async function createEntryRoute(
       input.poolId ?? null,
       input.introTemplateId ?? null,
       runAccount,
+      input.couponTemplateId ?? null,
       isActive,
       now,
       now,
@@ -145,6 +148,7 @@ export async function updateEntryRoute(
     fields.push('run_account_friend_add_scenarios = ?');
     values.push(input.runAccountFriendAddScenarios ? 1 : 0);
   }
+  if (input.couponTemplateId !== undefined) { fields.push('coupon_template_id = ?'); values.push(input.couponTemplateId ?? null); }
   if (input.isActive !== undefined) { fields.push('is_active = ?'); values.push(input.isActive ? 1 : 0); }
 
   values.push(id);

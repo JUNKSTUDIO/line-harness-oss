@@ -268,7 +268,7 @@ CREATE TABLE card_settings (
   multiplier_combination_mode IN ('highest_priority_only', 'multiply_all', 'sum_all')
 ), friend_anniversary_multiplier_enabled INTEGER NOT NULL DEFAULT 0, friend_anniversary_multiplier_value REAL NOT NULL DEFAULT 1.5, friend_anniversary_reminder_message TEXT, birthday_coupon_enabled INTEGER NOT NULL DEFAULT 0, birthday_coupon_template_id TEXT REFERENCES coupon_templates(id) ON DELETE SET NULL, reminder_reservation_button_label TEXT, reminder_reservation_helper_text TEXT, reminder_extend_button_label TEXT, remote_grant_min_role TEXT NOT NULL DEFAULT 'owner' CHECK (
   remote_grant_min_role IN ('owner', 'admin', 'staff')
-),
+), friend_add_coupon_template_id TEXT REFERENCES coupon_templates(id) ON DELETE SET NULL,
   CHECK (stamp_rule_type != 'per_amount' OR amount_per_stamp IS NOT NULL)
 );
 
@@ -331,7 +331,7 @@ CREATE TABLE entry_routes (
   is_active   INTEGER NOT NULL DEFAULT 1,
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
-, pool_id TEXT REFERENCES traffic_pools (id) ON DELETE SET NULL, intro_template_id TEXT REFERENCES message_templates (id) ON DELETE SET NULL, run_account_friend_add_scenarios INTEGER NOT NULL DEFAULT 1);
+, pool_id TEXT REFERENCES traffic_pools (id) ON DELETE SET NULL, intro_template_id TEXT REFERENCES message_templates (id) ON DELETE SET NULL, run_account_friend_add_scenarios INTEGER NOT NULL DEFAULT 1, coupon_template_id TEXT REFERENCES coupon_templates(id) ON DELETE SET NULL);
 
 CREATE TABLE event_booking_idempotency_keys (
   key              TEXT PRIMARY KEY,

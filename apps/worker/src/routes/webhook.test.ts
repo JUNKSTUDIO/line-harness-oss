@@ -26,6 +26,11 @@ vi.mock('@line-crm/db', () => ({
   addTagToFriend: vi.fn(),
   getEntryRouteByRefCode: vi.fn(),
   getMessageTemplateById: vi.fn(),
+  getFriendById: vi.fn(),
+  getCardSettings: vi.fn(),
+  getCouponTemplateById: vi.fn(),
+  issueCoupon: vi.fn(),
+  getLineAccountById: vi.fn(),
 }));
 
 vi.mock('@line-crm/line-sdk', async () => {
@@ -46,6 +51,11 @@ vi.mock('../services/step-delivery.js', () => ({
   expandVariables: vi.fn(),
 }));
 
+const cardCouponNotifierMocks = vi.hoisted(() => ({
+  sendCouponIssuedNotification: vi.fn(),
+}));
+vi.mock('../services/card-coupon-notifier.js', () => cardCouponNotifierMocks);
+
 import { verifySignature } from '@line-crm/line-sdk';
 import {
   addTagToFriend,
@@ -64,6 +74,10 @@ import {
   updateFriendFollowStatus,
   upsertChatOnMessage,
   upsertFriend,
+  getCardSettings,
+  getCouponTemplateById,
+  issueCoupon,
+  getLineAccountById,
 } from '@line-crm/db';
 import { fireEvent } from '../services/event-bus.js';
 import { webhook } from './webhook.js';
@@ -295,5 +309,163 @@ describe('POST /webhook — first-contact existing friends', () => {
     expect(addTagToFriend).not.toHaveBeenCalled();
     expect(getEntryRouteByRefCode).not.toHaveBeenCalled();
     expect(getMessageTemplateById).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /webhook — follow: friend-add coupon issuance', () => {
+  const issuedCoupon = {
+    id: 'coupon-1',
+    coupon_name_at_issuance: '友だち追加特典',
+    coupon_image_url_at_issuance: null,
+    expires_at: '2026-07-05T00:00:00.000+09:00',
+  };
+
+  function setupFollowMocks(opts: { refCode: string | null }) {
+    vi.mocked(verifySignature).mockResolvedValue(true);
+    vi.mocked(getLineAccounts).mockResolvedValue([
+      {
+        id: 'acc-1',
+        is_active: 1,
+        channel_secret: 'env-default-secret',
+        channel_access_token: 'env-default-token',
+      },
+    ] as unknown as Awaited<ReturnType<typeof getLineAccounts>>);
+    lineClientMocks.getProfile.mockResolvedValue({
+      userId: 'U-newfriend',
+      displayName: 'New Friend',
+      pictureUrl: null,
+      statusMessage: null,
+    });
+    vi.mocked(upsertFriend).mockResolvedValue({
+      id: 'friend-1',
+      line_user_id: 'U-newfriend',
+      display_name: 'New Friend',
+      picture_url: null,
+      status_message: null,
+      is_following: 1,
+      user_id: null,
+      line_account_id: null,
+      metadata: '{}',
+      first_tracked_link_id: null,
+      ref_code: opts.refCode,
+      created_at: '2026-06-22T12:00:00.000+09:00',
+      updated_at: '2026-06-22T12:00:00.000+09:00',
+    } as unknown as Awaited<ReturnType<typeof upsertFriend>>);
+    vi.mocked(getScenarios).mockResolvedValue([]);
+  }
+
+  function runFollowEvent(db: D1Database) {
+    const executionCtx = {
+      waitUntil: vi.fn(),
+      passThroughOnException: vi.fn(),
+      props: {},
+    } as unknown as ExecutionContext;
+    const app = setupApp();
+    const validShapedSignature = 'A'.repeat(43) + '=';
+    return app
+      .request(
+        '/webhook',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Line-Signature': validShapedSignature },
+          body: JSON.stringify({
+            destination: 'bot',
+            events: [
+              {
+                type: 'follow',
+                replyToken: 'reply-token',
+                timestamp: Date.now(),
+                source: { type: 'user', userId: 'U-newfriend' },
+                webhookEventId: 'event-1',
+                deliveryContext: { isRedelivery: false },
+                mode: 'active',
+              },
+            ],
+          }),
+        },
+        { ...baseEnv, DB: db },
+        executionCtx,
+      )
+      .then(async (res) => {
+        const processing = vi.mocked(executionCtx.waitUntil).mock.calls[0]?.[0] as Promise<unknown>;
+        await processing;
+        return res;
+      });
+  }
+
+  function makeDbStub(): D1Database {
+    const stmt = { bind: vi.fn(), run: vi.fn().mockResolvedValue({}), all: vi.fn().mockResolvedValue({ results: [] }) };
+    stmt.bind.mockReturnValue(stmt);
+    return { prepare: vi.fn().mockReturnValue(stmt) } as unknown as D1Database;
+  }
+
+  test('issues the referral-link-specific coupon when the route has one configured', async () => {
+    setupFollowMocks({ refCode: 'youtube' });
+    vi.mocked(getEntryRouteByRefCode).mockResolvedValue({
+      id: 'route-1', ref_code: 'youtube', name: 'YouTube', tag_id: null, scenario_id: null,
+      intro_template_id: null, run_account_friend_add_scenarios: 1, coupon_template_id: 'tpl-route', is_active: 1,
+      created_at: '', updated_at: '',
+    } as unknown as EntryRoute);
+    vi.mocked(getCouponTemplateById).mockResolvedValue({ id: 'tpl-route', is_active: 1, message_template_id: null } as never);
+    vi.mocked(issueCoupon).mockResolvedValue(issuedCoupon as never);
+    vi.mocked(getLineAccountById).mockResolvedValue({ liff_id: 'liff-1' } as never);
+
+    const db = makeDbStub();
+    const res = await runFollowEvent(db);
+
+    expect(res.status).toBe(200);
+    expect(issueCoupon).toHaveBeenCalledWith(db, expect.objectContaining({
+      friendId: 'friend-1', lineAccountId: 'acc-1', couponTemplateId: 'tpl-route', issuedVia: 'campaign',
+    }));
+    expect(cardCouponNotifierMocks.sendCouponIssuedNotification).toHaveBeenCalledWith(expect.objectContaining({
+      channelAccessToken: 'env-default-token', toLineUserId: 'U-newfriend', liffId: 'liff-1',
+    }));
+    expect(getCardSettings).not.toHaveBeenCalled();
+  });
+
+  test('falls back to the account default coupon when there is no referral route', async () => {
+    setupFollowMocks({ refCode: null });
+    vi.mocked(getCardSettings).mockResolvedValue({ friend_add_coupon_template_id: 'tpl-default' } as never);
+    vi.mocked(getCouponTemplateById).mockResolvedValue({ id: 'tpl-default', is_active: 1, message_template_id: 'msg-1' } as never);
+    vi.mocked(issueCoupon).mockResolvedValue(issuedCoupon as never);
+    vi.mocked(getLineAccountById).mockResolvedValue({ liff_id: 'liff-1' } as never);
+
+    const db = makeDbStub();
+    const res = await runFollowEvent(db);
+
+    expect(res.status).toBe(200);
+    expect(getEntryRouteByRefCode).not.toHaveBeenCalled();
+    expect(issueCoupon).toHaveBeenCalledWith(db, expect.objectContaining({ couponTemplateId: 'tpl-default' }));
+    expect(cardCouponNotifierMocks.sendCouponIssuedNotification).toHaveBeenCalledWith(expect.objectContaining({ messageTemplateId: 'msg-1' }));
+  });
+
+  test('issues nothing when neither the route nor the account has a coupon configured', async () => {
+    setupFollowMocks({ refCode: null });
+    vi.mocked(getCardSettings).mockResolvedValue({ friend_add_coupon_template_id: null } as never);
+
+    const db = makeDbStub();
+    const res = await runFollowEvent(db);
+
+    expect(res.status).toBe(200);
+    expect(issueCoupon).not.toHaveBeenCalled();
+    expect(cardCouponNotifierMocks.sendCouponIssuedNotification).not.toHaveBeenCalled();
+  });
+
+  test('prefers the referral-link coupon and does not also issue the account default (no double issuance)', async () => {
+    setupFollowMocks({ refCode: 'youtube' });
+    vi.mocked(getEntryRouteByRefCode).mockResolvedValue({
+      id: 'route-1', ref_code: 'youtube', name: 'YouTube', tag_id: null, scenario_id: null,
+      intro_template_id: null, run_account_friend_add_scenarios: 1, coupon_template_id: 'tpl-route', is_active: 1,
+      created_at: '', updated_at: '',
+    } as unknown as EntryRoute);
+    vi.mocked(getCouponTemplateById).mockResolvedValue({ id: 'tpl-route', is_active: 1, message_template_id: null } as never);
+    vi.mocked(issueCoupon).mockResolvedValue(issuedCoupon as never);
+    vi.mocked(getLineAccountById).mockResolvedValue({ liff_id: 'liff-1' } as never);
+
+    const db = makeDbStub();
+    await runFollowEvent(db);
+
+    expect(issueCoupon).toHaveBeenCalledTimes(1);
+    expect(getCardSettings).not.toHaveBeenCalled();
   });
 });

@@ -19,10 +19,15 @@ import {
   addTagToFriend,
   getEntryRouteByRefCode,
   getMessageTemplateById,
+  getCardSettings,
+  getCouponTemplateById,
+  issueCoupon,
+  getLineAccountById,
 } from '@line-crm/db';
 import type { EntryRoute, Friend } from '@line-crm/db';
 import { fireEvent } from '../services/event-bus.js';
 import { buildMessage, expandVariables } from '../services/step-delivery.js';
+import { sendCouponIssuedNotification } from '../services/card-coupon-notifier.js';
 import type { Env } from '../index.js';
 
 const webhook = new Hono<Env>();
@@ -357,6 +362,48 @@ async function handleEvent(
         } catch (err) {
           console.error('[follow] referral scenario enrollment failed', err);
         }
+      }
+    }
+
+    // 友だち追加時クーポン: リンク (entry_routes) 固有の設定があればそれを優先し、
+    // 無ければアカウント既定 (card_settings) を使う。1回の友だち追加で1枚まで
+    // (リンク優先・アカウント既定との同時発行はしない)。
+    if (lineAccountId) {
+      try {
+        const friendAddCouponTemplateId =
+          referralRoute?.coupon_template_id ??
+          (await getCardSettings(db, lineAccountId))?.friend_add_coupon_template_id ??
+          null;
+        if (friendAddCouponTemplateId) {
+          const template = await getCouponTemplateById(db, friendAddCouponTemplateId);
+          if (template?.is_active) {
+            const coupon = await issueCoupon(db, {
+              friendId: friend.id,
+              lineAccountId,
+              couponTemplateId: friendAddCouponTemplateId,
+              issuedVia: 'campaign',
+            });
+            const account = await getLineAccountById(db, lineAccountId);
+            if (account) {
+              await sendCouponIssuedNotification({
+                db,
+                channelAccessToken: lineAccessToken,
+                toLineUserId: userId,
+                liffId: account.liff_id,
+                messageTemplateId: template.message_template_id,
+                fallbackText: `友だち追加ありがとうございます！「${coupon.coupon_name_at_issuance ?? 'クーポン'}」をプレゼントしました（有効期限: ${new Date(coupon.expires_at).toLocaleDateString('ja-JP')}まで）。`,
+                coupon: {
+                  name: coupon.coupon_name_at_issuance ?? 'クーポン',
+                  imageUrl: coupon.coupon_image_url_at_issuance,
+                  expiresAtJst: new Date(coupon.expires_at).toLocaleDateString('ja-JP'),
+                },
+              });
+            }
+            console.log(`[follow] friend-add coupon issued template=${friendAddCouponTemplateId}`);
+          }
+        }
+      } catch (err) {
+        console.error('[follow] friend-add coupon issuance failed', err);
       }
     }
 

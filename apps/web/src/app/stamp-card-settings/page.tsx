@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Header from '@/components/layout/header'
 import ImageUploader from '@/components/shared/image-uploader'
-import { api, type CardSettings, type CardRank } from '@/lib/api'
+import { api, type CardSettings, type CardRank, type CouponTemplate } from '@/lib/api'
 import { useAccount } from '@/contexts/account-context'
 
 const EMPTY: CardSettings = {
@@ -40,6 +40,7 @@ const EMPTY: CardSettings = {
   weather_check_anchor_time: '00:00',
   rank_badge_layout: 'split',
   remote_grant_min_role: 'owner',
+  friend_add_coupon_template_id: null,
 }
 
 export default function StampCardSettingsPage() {
@@ -53,6 +54,7 @@ export default function StampCardSettingsPage() {
   const [geocoding, setGeocoding] = useState(false)
   const [geocodeMessage, setGeocodeMessage] = useState('')
   const [ranks, setRanks] = useState<CardRank[]>([])
+  const [couponTemplates, setCouponTemplates] = useState<CouponTemplate[]>([])
 
   useEffect(() => {
     if (!selectedAccount) return
@@ -61,7 +63,8 @@ export default function StampCardSettingsPage() {
     Promise.all([
       api.cardSettings.get(selectedAccount.id),
       api.cardRanks.list(selectedAccount.id),
-    ]).then(([settingsRes, ranksRes]) => {
+      api.couponTemplates.list(selectedAccount.id),
+    ]).then(([settingsRes, ranksRes, templatesRes]) => {
       if (settingsRes.success) {
         setForm(settingsRes.data)
         setAddressInput(settingsRes.data.shop_address ?? '')
@@ -69,6 +72,7 @@ export default function StampCardSettingsPage() {
         setError(settingsRes.error)
       }
       if (ranksRes.success) setRanks(ranksRes.data)
+      if (templatesRes.success) setCouponTemplates(templatesRes.data.filter((t) => t.is_active))
       setLoading(false)
     })
   }, [selectedAccount])
@@ -125,6 +129,7 @@ export default function StampCardSettingsPage() {
         weather_check_anchor_time: form.weather_check_anchor_time,
         rank_badge_layout: form.rank_badge_layout,
         remote_grant_min_role: form.remote_grant_min_role,
+        friend_add_coupon_template_id: form.friend_add_coupon_template_id,
       })
       if (res.success) {
         setForm(res.data)
@@ -192,6 +197,22 @@ export default function StampCardSettingsPage() {
               onChange={(e) => set('signup_bonus_stamps', Number(e.target.value))}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
             />
+          </Field>
+        </Section>
+
+        <Section title="友だち追加時クーポン">
+          <Field label="友だち追加時に発行するクーポン（既定）">
+            <select
+              value={form.friend_add_coupon_template_id ?? ''}
+              onChange={(e) => set('friend_add_coupon_template_id', e.target.value || null)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            >
+              <option value="">発行しない（既定）</option>
+              {couponTemplates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+            <p className="text-xs text-gray-400 mt-1">
+              友だち追加（LINEの「追加」操作）のたびにこのクーポンを発行します。「リファラルリンク」側で個別にクーポンを設定したリンク経由の場合は、そちらが優先されます（両方同時に発行されることはありません）。
+            </p>
           </Field>
         </Section>
 

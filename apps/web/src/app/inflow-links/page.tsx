@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import Link from 'next/link'
-import { api, fetchApi } from '@/lib/api'
+import { api, fetchApi, type CouponTemplate } from '@/lib/api'
 import Header from '@/components/layout/header'
 import { useAccount } from '@/contexts/account-context'
 import type { EntryRoute, TrafficPool, Scenario, Tag } from '@line-crm/shared'
@@ -53,6 +53,7 @@ export default function InflowLinksPage() {
   const [scenarios, setScenarios] = useState<Scenario[]>([])
   const [templates, setTemplates] = useState<MessageTemplate[]>([])
   const [tags, setTags] = useState<Tag[]>([])
+  const [couponTemplates, setCouponTemplates] = useState<CouponTemplate[]>([])
   const [summary, setSummary] = useState<RefSummaryData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -85,12 +86,15 @@ export default function InflowLinksPage() {
     // ref_code のみ」に絞れる。pool_id NULL のリンクが多い現状ではアカ別の
     // pool 紐付け判定よりも、こちらの実流入ベースの方が運用実態に合う。
     const summaryQuery = selectedAccountId ? `?lineAccountId=${selectedAccountId}` : ''
-    const [r, p, s, t, tagRes, sum] = await Promise.all([
+    const [r, p, s, t, tagRes, couponRes, sum] = await Promise.all([
       api.entryRoutes.list(),
       api.pools.list(),
       api.scenarios.list(),
       api.messageTemplates.list(),
       api.tags.list().catch(() => ({ success: false, data: [] as Tag[] })),
+      selectedAccountId
+        ? api.couponTemplates.list(selectedAccountId).catch(() => ({ success: false, data: [] as CouponTemplate[] }))
+        : Promise.resolve({ success: true, data: [] as CouponTemplate[] }),
       fetchApi<{ success: boolean; data: RefSummaryData }>(
         `/api/analytics/ref-summary${summaryQuery}`,
       ).catch(() => ({ success: false, data: null })),
@@ -101,6 +105,7 @@ export default function InflowLinksPage() {
     if (s.success) setScenarios(s.data)
     if (t.success) setTemplates(t.data)
     if (tagRes.success) setTags(tagRes.data)
+    if (couponRes.success) setCouponTemplates(couponRes.data.filter((ct) => ct.is_active))
     if ('success' in sum && sum.success && sum.data) setSummary(sum.data)
 
     // Load pool→accounts mapping after we know the pool list. Done in a 2nd
@@ -546,6 +551,7 @@ export default function InflowLinksPage() {
           scenarios={scenarios}
           templates={templates}
           tags={tags}
+          couponTemplates={couponTemplates}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null)
