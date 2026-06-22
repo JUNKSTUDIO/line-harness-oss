@@ -66,6 +66,7 @@ export default function InflowLinksPage() {
     EntryRoute | 'new' | { register: string } | null
   >(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [linking, setLinking] = useState<string | null>(null)
   // Expanded-row state for showing friends acquired through a given ref.
   // Mirrors the legacy /affiliates page UX — click row → load via
   // /api/analytics/ref/:refCode → render friend list inline.
@@ -230,16 +231,14 @@ export default function InflowLinksPage() {
   // Filter by sidebar's selected account.
   //   - 全アカウント表示: entry_routes 全件 + 未登録 ref 全件
   //   - アカ選択中:
-  //       a) 未登録 ref: そのアカで実流入があった分のみ (friendCount > 0)
-  //       b) 登録済み行: 実流入 > 0 OR その pool に選択中アカが所属
-  //          (pool_id 未設定なら実行時 main フォールバックで main 所属判定)
+  //       a) 未登録 ref (X Harness 等の外部UUID): そのアカで実流入があった分のみ (friendCount > 0)
+  //       b) 登録済み行: 流入実績・pool所属の有無に関わらず常に表示する
   //
-  // 登録済み行を friendCount > 0 だけで絞ると、作りたての行が一覧から消えて
-  // 「保存したのに出てこない」事故になる。一方で「登録済みは全部表示」だと
-  // X Harness 1 サイドバー選択中に main プール向けの lp/lp2 が並んで紛らわしい。
-  // ルーティングの真実は pool_accounts (worker の getRandomPoolAccount が
-  // ここから抽選する) なので、poolMembers を見て所属判定する。
-  // マルチアカウント pool でも正しく動く。
+  // 以前は登録済み行も pool 所属 (実流入 > 0 OR その pool に選択中アカが所属) で絞っていたが、
+  // 「新規リンクを作ったのに一覧から消えて、紐付け方が分からない」事故が起きた — pool に
+  // アカウントを所属させ忘れただけで、リンク自体は正しく作成されているのに見えなくなるため。
+  // 登録済み行は常に表示し、pool 未所属の場合は行内のバッジ+ボタンで気づけて直せるようにする
+  // (下の poolRoutesToAccount は引き続き「このアカウント向けか」の判定に使う)。
   const allRows = Array.from(rowsByRef.values())
   const mainPool = pools.find((p) => p.slug === 'main')
   const poolRoutesToAccount = (poolId: string | null, accountId: string): boolean => {
@@ -248,12 +247,37 @@ export default function InflowLinksPage() {
     return poolMembers[targetPoolId]?.has(accountId) ?? false
   }
   const accountFilteredRows = selectedAccountId
-    ? allRows.filter((r) => {
-        if ((r.stats?.friendCount ?? 0) > 0) return true
-        if (!r.registered) return false
-        return poolRoutesToAccount(r.poolId, selectedAccountId)
-      })
+    ? allRows.filter((r) => r.registered || (r.stats?.friendCount ?? 0) > 0)
     : allRows
+
+  // 選択中アカウントが pool に未所属の登録済みリンクを、ワンクリックで紐付ける。
+  // poolId 未設定の行は実行時に main プールへフォールバックする実装なので、main を
+  // (無ければ作って) 対象にする。
+  async function linkToSelectedAccount(row: Row) {
+    if (!selectedAccountId) return
+    setLinking(row.refCode)
+    try {
+      let poolId = row.poolId
+      if (!poolId) {
+        const existingMain = pools.find((p) => p.slug === 'main')
+        if (existingMain) {
+          poolId = existingMain.id
+        } else {
+          const created = await api.pools.create({ slug: 'main', name: 'メインプール', activeAccountId: selectedAccountId })
+          if (!created.success) {
+            setError(created.error ?? 'プールの作成に失敗しました')
+            return
+          }
+          poolId = created.data.id
+        }
+      }
+      const res = await api.pools.accounts.add(poolId, selectedAccountId)
+      if (!res.success) setError(res.error ?? 'アカウントの紐付けに失敗しました')
+      else await load()
+    } finally {
+      setLinking(null)
+    }
+  }
 
   // Newest "最新追加" first. Routes with no recorded inflow yet sink to the bottom.
   const sortedRows = [...accountFilteredRows].sort((a, b) => {
@@ -380,6 +404,8 @@ export default function InflowLinksPage() {
                   ? routes.find((e) => e.id === r.entryRouteId) ?? null
                   : null
                 const isExpanded = expandedRef === r.refCode
+                const isUnlinked =
+                  r.registered && !!selectedAccountId && !poolRoutesToAccount(r.poolId, selectedAccountId)
                 return (
                   <FragmentRow
                     key={r.refCode}
@@ -408,6 +434,23 @@ export default function InflowLinksPage() {
                             未登録
                           </span>
                         </span>
+                      )}
+                      {isUnlinked && (
+                        <div className="mt-1 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                          <span
+                            className="text-[10px] text-rose-700 bg-rose-50 border border-rose-200 rounded px-1.5 py-0.5"
+                            title="このリンクの送り先プールに、選択中のLINEアカウントが所属していません。"
+                          >
+                            このアカウント向けではありません
+                          </span>
+                          <button
+                            onClick={() => linkToSelectedAccount(r)}
+                            disabled={linking === r.refCode}
+                            className="text-[10px] text-blue-600 hover:underline disabled:opacity-50"
+                          >
+                            {linking === r.refCode ? '紐付け中...' : 'このアカウントに紐付ける'}
+                          </button>
+                        </div>
                       )}
                     </td>
                     <td className="px-4 py-3 text-sm font-mono text-blue-600 break-all">
