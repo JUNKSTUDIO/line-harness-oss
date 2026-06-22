@@ -1,11 +1,42 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
+import { QRCodeSVG } from 'qrcode.react'
 import { api } from '@/lib/api'
 import Header from '@/components/layout/header'
 import type { EntryRoute, EntryRouteFunnel } from '@line-crm/shared'
+
+/** QRCodeSVGが描画したSVGをCanvas経由でPNGに変換し、ダウンロードさせる。店舗のテーブルPOPやチラシへの印刷用。 */
+function downloadQrAsPng(svgContainer: HTMLDivElement, fileName: string) {
+  const svg = svgContainer.querySelector('svg')
+  if (!svg) return
+  const svgData = new XMLSerializer().serializeToString(svg)
+  const img = new Image()
+  const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' })
+  const url = URL.createObjectURL(svgBlob)
+  img.onload = () => {
+    // 印刷利用も想定し、表示サイズの4倍で書き出して粗くならないようにする。
+    const scale = 4
+    const canvas = document.createElement('canvas')
+    canvas.width = img.width * scale
+    canvas.height = img.height * scale
+    const ctx = canvas.getContext('2d')
+    if (ctx) {
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+    }
+    URL.revokeObjectURL(url)
+    const pngUrl = canvas.toDataURL('image/png')
+    const a = document.createElement('a')
+    a.href = pngUrl
+    a.download = fileName
+    a.click()
+  }
+  img.src = url
+}
 
 export default function InflowLinkDetailPage() {
   const searchParams = useSearchParams()
@@ -14,6 +45,7 @@ export default function InflowLinkDetailPage() {
   const [funnel, setFunnel] = useState<EntryRouteFunnel | null>(null)
   const [loading, setLoading] = useState(!!id)
   const [error, setError] = useState(id ? '' : 'id クエリパラメータが必要です')
+  const qrRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!id) return
@@ -62,6 +94,24 @@ export default function InflowLinkDetailPage() {
           <code className="block bg-gray-50 px-3 py-2 rounded text-xs font-mono break-all">
             {url}
           </code>
+        </div>
+
+        <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-3">
+          <h3 className="text-sm font-medium text-gray-700">QRコード</h3>
+          <p className="text-xs text-gray-500">
+            店頭POPやチラシなどに印刷して、このリンク経由の友だち追加を測定できます。読み取られたURLは上の公開URLと同じため、計測（友だち数・クリック数・ファネル）は通常のリンクと同様に記録されます。
+          </p>
+          <div ref={qrRef} className="flex justify-center py-2">
+            <QRCodeSVG value={url} size={220} />
+          </div>
+          <div className="flex justify-center">
+            <button
+              onClick={() => qrRef.current && downloadQrAsPng(qrRef.current, `${route.name}-qr.png`)}
+              className="text-sm text-blue-600 hover:underline"
+            >
+              QRコードをPNGでダウンロード
+            </button>
+          </div>
         </div>
       </div>
     </div>
