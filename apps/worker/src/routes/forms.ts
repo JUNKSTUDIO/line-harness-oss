@@ -11,12 +11,14 @@ import {
   jstNow,
 } from '@line-crm/db';
 import { getFriendByLineUserId, getFriendById } from '@line-crm/db';
-import { addTagToFriend, enrollFriendInScenario } from '@line-crm/db';
+import { addTagToFriend, enrollFriendInScenario, addScore } from '@line-crm/db';
 import type {
   Form as DbForm,
   FormSubmission as DbFormSubmission,
   FormUsedByAccount,
 } from '@line-crm/db';
+import { computeFormAnswerEffects } from '../services/form-answer-effects.js';
+import type { FormFieldOption } from '../services/form-answer-effects.js';
 import type { Env } from '../index.js';
 
 const forms = new Hono<Env>();
@@ -305,6 +307,7 @@ forms.post('/api/forms/:id/submit', async (c) => {
       label: string;
       type: string;
       required?: boolean;
+      options?: Array<string | FormFieldOption>;
     }>;
 
     for (const field of fields) {
@@ -440,6 +443,15 @@ forms.post('/api/forms/:id/submit', async (c) => {
       // Enroll in scenario
       if (form.on_submit_scenario_id) {
         sideEffects.push(enrollFriendInScenario(db, friendId, form.on_submit_scenario_id));
+      }
+
+      // 設問・選択肢ごとの副作用 (アンケート機能): rating型は回答値そのものを点数として加算、
+      // radio/select/checkboxは選択した選択肢 (rich形式のみ) のtagId/scoreValue/branchScenarioIdを実行する。
+      // フォーム全体の on_submit_* (上記) とは独立に追加で発火する (二重設定しても両方効く)。
+      for (const effect of computeFormAnswerEffects(form.name, fields, submissionData)) {
+        if (effect.type === 'tag') sideEffects.push(addTagToFriend(db, friendId!, effect.tagId));
+        else if (effect.type === 'score') sideEffects.push(addScore(db, { friendId: friendId!, scoreChange: effect.amount, reason: effect.reason }));
+        else if (effect.type === 'scenario') sideEffects.push(enrollFriendInScenario(db, friendId!, effect.scenarioId));
       }
 
       // If webhook returned a join_url (e.g. Meet Harness), send a Flex button to the user

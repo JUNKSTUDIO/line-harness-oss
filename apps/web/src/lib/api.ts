@@ -249,6 +249,58 @@ export interface CouponTemplate {
   updated_at: string
 }
 
+// アンケート (フォーム) — 選択肢ごとにタグ付与/点数加算/シナリオ分岐を設定できる。
+// プレーン文字列の選択肢 (旧形式) と共存する。
+export interface FormFieldOption {
+  value: string
+  label?: string
+  tagId?: string | null
+  scoreValue?: number | null
+  branchScenarioId?: string | null
+}
+
+export interface FormFieldDef {
+  name: string
+  label: string
+  type: 'text' | 'email' | 'tel' | 'number' | 'textarea' | 'select' | 'radio' | 'checkbox' | 'date' | 'rating'
+  required?: boolean
+  options?: Array<string | FormFieldOption>
+  placeholder?: string
+  columns?: number
+}
+
+export interface FormSummary {
+  id: string
+  name: string
+  description: string | null
+  isActive: boolean
+  submitCount: number
+  lastSubmittedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface FormDetail extends FormSummary {
+  fields: FormFieldDef[]
+  onSubmitTagId: string | null
+  onSubmitScenarioId: string | null
+  onSubmitMessageType: 'text' | 'flex' | null
+  onSubmitMessageContent: string | null
+  onSubmitWebhookUrl: string | null
+  onSubmitWebhookHeaders: string | null
+  onSubmitWebhookFailMessage: string | null
+  saveToMetadata: boolean
+}
+
+export interface FormInput {
+  name: string
+  description?: string | null
+  fields?: FormFieldDef[]
+  onSubmitTagId?: string | null
+  onSubmitScenarioId?: string | null
+  saveToMetadata?: boolean
+}
+
 export interface ExpiredCouponHolder {
   id: string
   friend_id: string
@@ -963,6 +1015,18 @@ export const api = {
       fetchApi<ApiResponse<null>>(`/api/reminders/${reminderId}/steps/${stepId}`, {
         method: 'DELETE',
       }),
+  },
+  forms: {
+    list: () =>
+      fetchApi<ApiResponse<FormSummary[]>>('/api/forms'),
+    get: (id: string) =>
+      fetchApi<ApiResponse<FormDetail>>(`/api/forms/${id}`),
+    create: (data: FormInput) =>
+      fetchApi<ApiResponse<FormDetail>>('/api/forms', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: Partial<FormInput> & { isActive?: boolean }) =>
+      fetchApi<ApiResponse<FormDetail>>(`/api/forms/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id: string) =>
+      fetchApi<ApiResponse<null>>(`/api/forms/${id}`, { method: 'DELETE' }),
   },
   scoring: {
     rules: () =>

@@ -23,14 +23,31 @@ declare const liff: {
 const UUID_STORAGE_KEY = 'lh_uuid';
 const FORM_VERSION = '2.0.0'; // cache buster
 
+interface FormFieldOption {
+  value: string;
+  label?: string;
+  /** タグ付与・点数加算・シナリオ分岐の設定は管理画面でのみ使う。LIFF側は value/label しか見ない。 */
+  tagId?: string | null;
+  scoreValue?: number | null;
+  branchScenarioId?: string | null;
+}
+
 interface FormField {
   name: string;
   label: string;
-  type: 'text' | 'email' | 'tel' | 'number' | 'textarea' | 'select' | 'radio' | 'checkbox' | 'date';
+  type: 'text' | 'email' | 'tel' | 'number' | 'textarea' | 'select' | 'radio' | 'checkbox' | 'date' | 'rating';
   required?: boolean;
-  options?: string[];
+  /** 旧形式 (プレーン文字列) と新形式 (rich option) の両方をサポートする。 */
+  options?: Array<string | FormFieldOption>;
   placeholder?: string;
   columns?: number;
+}
+
+function optionValue(o: string | FormFieldOption): string {
+  return typeof o === 'string' ? o : o.value;
+}
+function optionLabel(o: string | FormFieldOption): string {
+  return typeof o === 'string' ? o : (o.label ?? o.value);
 }
 
 interface FormDef {
@@ -146,7 +163,7 @@ function renderField(field: FormField): string {
 
     case 'select': {
       const opts = (field.options ?? [])
-        .map((o) => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`)
+        .map((o) => `<option value="${escapeHtml(optionValue(o))}">${escapeHtml(optionLabel(o))}</option>`)
         .join('');
       inputHtml = `<select
         name="${escapeHtml(field.name)}"
@@ -163,8 +180,8 @@ function renderField(field: FormField): string {
         .map(
           (o) =>
             `<label class="radio-label">
-              <input type="radio" name="${escapeHtml(field.name)}" value="${escapeHtml(o)}"${required} />
-              ${escapeHtml(o)}
+              <input type="radio" name="${escapeHtml(field.name)}" value="${escapeHtml(optionValue(o))}"${required} />
+              ${escapeHtml(optionLabel(o))}
             </label>`,
         )
         .join('');
@@ -177,12 +194,27 @@ function renderField(field: FormField): string {
         .map(
           (o) =>
             `<label class="checkbox-label">
-              <input type="checkbox" name="${escapeHtml(field.name)}" value="${escapeHtml(o)}" />
-              ${escapeHtml(o)}
+              <input type="checkbox" name="${escapeHtml(field.name)}" value="${escapeHtml(optionValue(o))}" />
+              ${escapeHtml(optionLabel(o))}
             </label>`,
         )
         .join('');
       inputHtml = `<div class="checkbox-group${field.columns === 2 ? ' two-col' : ''}">${boxes}</div>`;
+      break;
+    }
+
+    case 'rating': {
+      const scale = [1, 2, 3, 4, 5];
+      const buttons = scale
+        .map(
+          (n) =>
+            `<label class="rating-label">
+              <input type="radio" name="${escapeHtml(field.name)}" value="${n}"${required} />
+              <span>${n}</span>
+            </label>`,
+        )
+        .join('');
+      inputHtml = `<div class="rating-group">${buttons}</div>`;
       break;
     }
 
@@ -248,6 +280,15 @@ function injectStyles(): void {
     .radio-label input, .checkbox-label input { accent-color: #06C755; width: 18px; height: 18px; }
     .radio-label input[type="radio"] { appearance: none; -webkit-appearance: none; width: 18px; height: 18px; border: 2px solid #ccc; border-radius: 50%; background: #fff; cursor: pointer; }
     .radio-label input[type="radio"]:checked { background: #fff; border-color: #06C755; border-width: 5px; }
+    .rating-group { display: flex; gap: 8px; }
+    .rating-label {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      font-size: 16px; font-weight: 700; color: #666;
+      padding: 12px 0; background: #fafafa; border-radius: 8px; border: 1.5px solid #e0e0e0;
+      cursor: pointer; transition: border-color 0.15s;
+    }
+    .rating-label input { display: none; }
+    .rating-label:has(input:checked) { border-color: #06C755; background: #e8faf0; color: #06C755; }
     .submit-btn {
       width: 100%; padding: 14px; border: none; border-radius: 8px;
       background: #06C755; color: #fff; font-size: 16px; font-weight: 700;
@@ -669,7 +710,7 @@ function collectFormData(): Record<string, unknown> {
         ),
       ).map((el) => el.value);
       result[field.name] = checked;
-    } else if (field.type === 'radio') {
+    } else if (field.type === 'radio' || field.type === 'rating') {
       const checked = document.querySelector<HTMLInputElement>(
         `input[name="${field.name}"]:checked`,
       );
@@ -697,7 +738,7 @@ function validateForm(): string | null {
         `input[name="${field.name}"]:checked`,
       );
       if (checked.length === 0) return `${field.label} は必須項目です`;
-    } else if (field.type === 'radio') {
+    } else if (field.type === 'radio' || field.type === 'rating') {
       const checked = document.querySelector<HTMLInputElement>(
         `input[name="${field.name}"]:checked`,
       );
