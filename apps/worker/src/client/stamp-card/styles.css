@@ -243,19 +243,22 @@ body.sc-active #app {
   padding-bottom: 4px;
 }
 .sc-calendar-cell {
-  aspect-ratio: 1;
+  /* 予定数やアイコンの分だけ縦に伸びるように、正方形固定 (aspect-ratio) はやめて
+     min-height だけ下限として持たせる。同じ週 (grid row) の他マスは grid の
+     align-items:stretch (既定) で自動的に高さが揃う。 */
+  min-height: 44px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
   gap: 1px;
   padding-top: 3px;
+  padding-bottom: 3px;
   border-radius: 8px;
   font-size: 10px;
   color: #334155;
   background: #fff;
   border: 1px solid #f1f5f9;
-  overflow: hidden;
 }
 .sc-calendar-day-number {
   font-size: 12px;
