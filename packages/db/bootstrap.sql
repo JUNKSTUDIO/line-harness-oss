@@ -268,7 +268,7 @@ CREATE TABLE card_settings (
   multiplier_combination_mode IN ('highest_priority_only', 'multiply_all', 'sum_all')
 ), friend_anniversary_multiplier_enabled INTEGER NOT NULL DEFAULT 0, friend_anniversary_multiplier_value REAL NOT NULL DEFAULT 1.5, friend_anniversary_reminder_message TEXT, birthday_coupon_enabled INTEGER NOT NULL DEFAULT 0, birthday_coupon_template_id TEXT REFERENCES coupon_templates(id) ON DELETE SET NULL, reminder_reservation_button_label TEXT, reminder_reservation_helper_text TEXT, reminder_extend_button_label TEXT, remote_grant_min_role TEXT NOT NULL DEFAULT 'owner' CHECK (
   remote_grant_min_role IN ('owner', 'admin', 'staff')
-), friend_add_coupon_template_id TEXT REFERENCES coupon_templates(id) ON DELETE SET NULL,
+), friend_add_coupon_template_id TEXT REFERENCES coupon_templates(id) ON DELETE SET NULL, calendar_ical_url TEXT, calendar_months_ahead INTEGER NOT NULL DEFAULT 3, calendar_show_coupon_expiry INTEGER NOT NULL DEFAULT 0, calendar_show_card_expiry INTEGER NOT NULL DEFAULT 0,
   CHECK (stamp_rule_type != 'per_amount' OR amount_per_stamp IS NOT NULL)
 );
 

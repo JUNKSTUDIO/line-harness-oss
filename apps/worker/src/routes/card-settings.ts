@@ -51,6 +51,10 @@ cardSettings.get('/api/card-settings', async (c) => {
       rank_badge_layout: 'split',
       remote_grant_min_role: 'owner',
       friend_add_coupon_template_id: null,
+      calendar_ical_url: null,
+      calendar_months_ahead: 3,
+      calendar_show_coupon_expiry: 0,
+      calendar_show_card_expiry: 0,
     },
   });
 });

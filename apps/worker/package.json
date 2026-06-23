@@ -18,6 +18,7 @@
     "@line-crm/shared": "workspace:*",
     "@line-harness/update-engine": "workspace:*",
     "hono": "^4.6.0",
+    "ical.js": "^2.2.1",
     "qrcode.react": "^4.2.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

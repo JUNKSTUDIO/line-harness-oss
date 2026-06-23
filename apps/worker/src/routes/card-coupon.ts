@@ -21,6 +21,7 @@ import {
 } from '@line-crm/db';
 import { verifyCallerLineUserId } from '../services/liff-auth.js';
 import { sendExtensionConfirmed, sendExtensionAlreadyUsed } from '../services/card-coupon-notifier.js';
+import { fetchIcalEvents, toJstDateString } from '../services/business-calendar.js';
 import type { Env } from '../index.js';
 
 const cardCoupon = new Hono<Env>();
@@ -168,6 +169,78 @@ cardCoupon.get('/api/liff/coupons/me', async (c) => {
         !coupon.expiration_extended &&
         new Date(coupon.expires_at).getTime() - Date.now() <= reminderDaysBefore * 24 * 3600_000,
     })),
+  });
+});
+
+// GET /api/liff/calendar?month=YYYY-MM — 営業日カレンダー (iCal予定 + クーポン/カード有効期限)。
+// month省略時は今月。表示可能範囲は [今月, 今月+calendar_months_ahead-1] にクランプする。
+cardCoupon.get('/api/liff/calendar', async (c) => {
+  const accountId = await resolveAccountIdFromLiff(c);
+  if (!accountId) return bad(c, 'liff_account_resolution_failed', 400);
+  const callerLineUserId = await verifyCallerLineUserId(c.req.header('Authorization'), c.env);
+  if (!callerLineUserId) return bad(c, 'unauthorized', 401);
+  const friend = await resolveFriend(c, accountId, callerLineUserId);
+  if (!friend) return bad(c, 'friend_not_found', 404);
+
+  const settings = await getCardSettings(c.env.DB, accountId);
+  const monthsAhead = Math.max(1, settings?.calendar_months_ahead ?? 3);
+
+  // 「今月」はJST基準で決める (Workerの実行時タイムゾーンはUTCのため、+9hシフト後にUTC getterで読む)。
+  const nowJst = new Date(Date.now() + 9 * 3600_000);
+  const currentY = nowJst.getUTCFullYear();
+  const currentM = nowJst.getUTCMonth(); // 0-indexed
+  const currentIndex = currentY * 12 + currentM;
+  const maxIndex = currentIndex + monthsAhead - 1;
+
+  let targetIndex = currentIndex;
+  const monthParam = c.req.query('month');
+  if (monthParam && /^\d{4}-\d{2}$/.test(monthParam)) {
+    const [y, m] = monthParam.split('-').map(Number);
+    const requestedIndex = y * 12 + (m - 1);
+    if (requestedIndex >= currentIndex && requestedIndex <= maxIndex) targetIndex = requestedIndex;
+  }
+  const targetY = Math.floor(targetIndex / 12);
+  const targetM = targetIndex % 12; // 0-indexed
+
+  // 対象月のJST範囲を実時刻 (UTC instant) に変換する。JST 00:00 = UTC -9h。
+  const rangeStart = new Date(Date.UTC(targetY, targetM, 1, 0, 0, 0) - 9 * 3600_000);
+  const rangeEnd = new Date(Date.UTC(targetY, targetM + 1, 0, 23, 59, 59, 999) - 9 * 3600_000);
+
+  const events = settings?.calendar_ical_url
+    ? await fetchIcalEvents(settings.calendar_ical_url, rangeStart, rangeEnd)
+    : [];
+
+  const couponExpiriesByDate = new Map<string, Array<{ id: string; name: string }>>();
+  if (settings?.calendar_show_coupon_expiry) {
+    const coupons = await getUserCoupons(c.env.DB, friend.id, { status: 'unused' });
+    for (const coupon of coupons) {
+      const expiresAt = new Date(coupon.expires_at);
+      if (expiresAt.getTime() < rangeStart.getTime() || expiresAt.getTime() > rangeEnd.getTime()) continue;
+      const dateKey = toJstDateString(expiresAt);
+      const list = couponExpiriesByDate.get(dateKey) ?? [];
+      list.push({ id: coupon.id, name: coupon.display_name });
+      couponExpiriesByDate.set(dateKey, list);
+    }
+  }
+
+  let cardExpiryDate: string | null = null;
+  if (settings?.calendar_show_card_expiry) {
+    const card = await getOrCreateUserCard(c.env.DB, friend.id, accountId);
+    if (card.expires_at) {
+      const expiresAt = new Date(card.expires_at);
+      if (expiresAt.getTime() >= rangeStart.getTime() && expiresAt.getTime() <= rangeEnd.getTime()) {
+        cardExpiryDate = toJstDateString(expiresAt);
+      }
+    }
+  }
+
+  return c.json({
+    month: `${targetY}-${String(targetM + 1).padStart(2, '0')}`,
+    canGoPrev: targetIndex > currentIndex,
+    canGoNext: targetIndex < maxIndex,
+    events,
+    couponExpiries: Array.from(couponExpiriesByDate.entries()).map(([date, coupons]) => ({ date, coupons })),
+    cardExpiryDate,
   });
 });
 

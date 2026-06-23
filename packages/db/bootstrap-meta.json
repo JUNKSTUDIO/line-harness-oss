@@ -68,7 +68,8 @@
     "060_coupon_template_message_fk_fix.sql",
     "061_remote_grant_permission.sql",
     "062_friend_add_coupon.sql",
-    "063_friend_add_coupon_log.sql"
+    "063_friend_add_coupon_log.sql",
+    "064_business_calendar.sql"
   ],
-  "migrationCount": 69
+  "migrationCount": 70
 }

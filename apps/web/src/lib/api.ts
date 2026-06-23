@@ -164,6 +164,10 @@ export interface CardSettings {
   rank_badge_layout: 'split' | 'background'
   remote_grant_min_role: 'owner' | 'admin' | 'staff'
   friend_add_coupon_template_id: string | null
+  calendar_ical_url: string | null
+  calendar_months_ahead: number
+  calendar_show_coupon_expiry: number
+  calendar_show_card_expiry: number
   created_at?: string
   updated_at?: string
 }

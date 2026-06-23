@@ -215,6 +215,161 @@ const COUPON_STATUS_LABEL: Record<CouponItem['status'], string> = {
   unused: '未使用', used: '使用済み', expired: '期限切れ',
 };
 
+// ── 営業日カレンダー ──────────────────────────────────────────────
+
+interface CalendarEventInfo { date: string; title: string }
+interface CalendarCouponExpiry { date: string; coupons: Array<{ id: string; name: string }> }
+interface CalendarResponse {
+  month: string; // "YYYY-MM"
+  canGoPrev: boolean;
+  canGoNext: boolean;
+  events: CalendarEventInfo[];
+  couponExpiries: CalendarCouponExpiry[];
+  cardExpiryDate: string | null;
+}
+
+function shiftMonthKey(monthKey: string, delta: number): string {
+  const [y, m] = monthKey.split('-').map(Number);
+  const idx = y * 12 + (m - 1) + delta;
+  const ny = Math.floor(idx / 12);
+  const nm = (idx % 12) + 1;
+  return `${ny}-${String(nm).padStart(2, '0')}`;
+}
+
+interface DayMarkers {
+  eventTitles: string[];
+  couponNames: string[];
+  cardExpiry: boolean;
+}
+
+// リッチメニュー単独画面 (action=calendar) とスタンプカード画面への埋め込みの両方から使う、
+// 月送り付きの予定/有効期限カレンダー。マーカーのある日をタップすると詳細をポップアップ表示する。
+function CalendarWidget({ ctx }: { ctx: StampCardContext }) {
+  const [monthOverride, setMonthOverride] = useState<string | null>(null);
+  const [data, setData] = useState<CalendarResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const path = monthOverride ? `/api/liff/calendar?month=${monthOverride}` : '/api/liff/calendar';
+    apiGet<CalendarResponse>(path, ctx)
+      .then((r) => { if (!cancelled) { setData(r); setError(null); } })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); });
+    return () => { cancelled = true; };
+  }, [ctx, monthOverride]);
+
+  if (error) return <div className="sc-card text-center text-sm text-gray-500 mt-4">カレンダーを読み込めませんでした</div>;
+  if (!data) return <div className="text-center text-sm text-gray-400 mt-4">カレンダーを読み込み中...</div>;
+
+  const [y, m] = data.month.split('-').map(Number); // m: 1-indexed
+  const firstWeekday = new Date(y, m - 1, 1).getDay(); // 0=日
+  const daysInMonth = new Date(y, m, 0).getDate();
+
+  const markersByDate = new Map<string, DayMarkers>();
+  const markerFor = (date: string): DayMarkers => {
+    let entry = markersByDate.get(date);
+    if (!entry) {
+      entry = { eventTitles: [], couponNames: [], cardExpiry: false };
+      markersByDate.set(date, entry);
+    }
+    return entry;
+  };
+  for (const e of data.events) markerFor(e.date).eventTitles.push(e.title);
+  for (const ce of data.couponExpiries) markerFor(ce.date).couponNames.push(...ce.coupons.map((c) => c.name));
+  if (data.cardExpiryDate) markerFor(data.cardExpiryDate).cardExpiry = true;
+
+  const cells: Array<{ day: number; date: string } | null> = [];
+  for (let i = 0; i < firstWeekday; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) {
+    cells.push({ day: d, date: `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}` });
+  }
+
+  const selected = selectedDate ? markersByDate.get(selectedDate) : null;
+
+  return (
+    <div className="sc-card mt-4">
+      <div className="flex items-center justify-between mb-2">
+        <button
+          onClick={() => setMonthOverride(shiftMonthKey(data.month, -1))}
+          disabled={!data.canGoPrev}
+          className="sc-calendar-nav-btn"
+          aria-label="前の月"
+        >
+          ←
+        </button>
+        <div className="text-sm font-bold text-gray-900">{y}年{m}月</div>
+        <button
+          onClick={() => setMonthOverride(shiftMonthKey(data.month, 1))}
+          disabled={!data.canGoNext}
+          className="sc-calendar-nav-btn"
+          aria-label="次の月"
+        >
+          →
+        </button>
+      </div>
+      <div className="sc-calendar-grid">
+        {['日', '月', '火', '水', '木', '金', '土'].map((w) => (
+          <div key={w} className="sc-calendar-weekday">{w}</div>
+        ))}
+        {cells.map((cell, i) => {
+          if (!cell) return <div key={`empty-${i}`} />;
+          const markers = markersByDate.get(cell.date);
+          const hasMarker = !!markers && (markers.eventTitles.length > 0 || markers.couponNames.length > 0 || markers.cardExpiry);
+          return (
+            <button
+              key={cell.date}
+              onClick={() => hasMarker && setSelectedDate(cell.date)}
+              className={`sc-calendar-cell ${hasMarker ? 'sc-calendar-cell-marked' : ''}`}
+            >
+              <span>{cell.day}</span>
+              {hasMarker && (
+                <span className="sc-calendar-marker-icons">
+                  {markers!.eventTitles.length > 0 && '📅'}
+                  {markers!.couponNames.length > 0 && '🎟️'}
+                  {markers!.cardExpiry && '🏷️'}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {selectedDate && selected && (
+        <Modal onClose={() => setSelectedDate(null)}>
+          <div className="p-4">
+            <div className="text-sm font-bold text-gray-900 mb-2">{formatJpDate(selectedDate)}</div>
+            {selected.eventTitles.map((title, i) => (
+              <div key={i} className="text-sm text-gray-700 mb-1">📅 {title}</div>
+            ))}
+            {selected.couponNames.length > 0 && (
+              <div className="mt-2">
+                <div className="text-xs font-bold" style={{ color: '#e11d48' }}>この日が有効期限のクーポン</div>
+                {selected.couponNames.map((name, i) => (
+                  <div key={i} className="text-sm text-gray-700">🎟️ {name}</div>
+                ))}
+              </div>
+            )}
+            {selected.cardExpiry && (
+              <div className="text-sm mt-2" style={{ color: '#e11d48' }}>🏷️ ショップカードの有効期限です</div>
+            )}
+            <button onClick={() => setSelectedDate(null)} className="sc-secondary-btn mt-4">閉じる</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function CalendarScreen({ ctx, onBack }: { ctx: StampCardContext; onBack: () => void }) {
+  return (
+    <div className="px-4 py-4 pb-10 sc-fade-in">
+      <button onClick={onBack} className="sc-back-btn">← 戻る</button>
+      <CalendarWidget ctx={ctx} />
+    </div>
+  );
+}
+
 interface CouponDetailInfo {
   name: string;
   description: string | null;
@@ -485,6 +640,7 @@ function CardScreen({ ctx, onShowCoupons, onShowQr }: { ctx: StampCardContext; o
           保有しているクーポンを見る
         </button>
       </div>
+      <CalendarWidget ctx={ctx} />
     </div>
   );
 }
@@ -954,6 +1110,7 @@ function ExtendActionScreen({ ctx, kind, id }: { ctx: StampCardContext; kind: 'c
 type Screen =
   | { kind: 'card' }
   | { kind: 'coupons' }
+  | { kind: 'calendar' }
   | { kind: 'extend'; target: 'card' | 'coupon'; id: string }
   | { kind: 'qr' }
   | { kind: 'grant'; token: string }
@@ -975,6 +1132,7 @@ function App({ ctx, initial }: { ctx: StampCardContext; initial: Screen }) {
           />
         )}
         {screen.kind === 'coupons' && <CouponListScreen ctx={ctx} onBack={() => setScreen({ kind: 'card' })} />}
+        {screen.kind === 'calendar' && <CalendarScreen ctx={ctx} onBack={() => setScreen({ kind: 'card' })} />}
         {screen.kind === 'extend' && <ExtendActionScreen ctx={ctx} kind={screen.target} id={screen.id} />}
         {screen.kind === 'qr' && <QrScreen ctx={ctx} liffId={ctx.liffId} onBack={() => setScreen({ kind: 'card' })} />}
         {screen.kind === 'grant' && <GrantScreen ctx={ctx} token={screen.token} />}

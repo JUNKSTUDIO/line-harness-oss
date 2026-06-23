@@ -536,6 +536,9 @@ async function initStampCard(): Promise<void> {
   const { mountStampCard } = await import('./stamp-card/main.js');
   if (action === 'extend' && (kind === 'card' || kind === 'coupon') && id) {
     mountStampCard(container, ctx, { kind: 'extend', target: kind, id });
+  } else if (action === 'calendar') {
+    // リッチメニューの「営業日カレンダー」ボタン (?page=stamp-card&action=calendar) から開かれた場合。
+    mountStampCard(container, ctx, { kind: 'calendar' });
   } else {
     mountStampCard(container, ctx, { kind: 'card' });
   }

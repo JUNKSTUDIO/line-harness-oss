@@ -41,6 +41,10 @@ const EMPTY: CardSettings = {
   rank_badge_layout: 'split',
   remote_grant_min_role: 'owner',
   friend_add_coupon_template_id: null,
+  calendar_ical_url: null,
+  calendar_months_ahead: 3,
+  calendar_show_coupon_expiry: 0,
+  calendar_show_card_expiry: 0,
 }
 
 export default function StampCardSettingsPage() {
@@ -130,6 +134,10 @@ export default function StampCardSettingsPage() {
         rank_badge_layout: form.rank_badge_layout,
         remote_grant_min_role: form.remote_grant_min_role,
         friend_add_coupon_template_id: form.friend_add_coupon_template_id,
+        calendar_ical_url: form.calendar_ical_url,
+        calendar_months_ahead: form.calendar_months_ahead,
+        calendar_show_coupon_expiry: form.calendar_show_coupon_expiry,
+        calendar_show_card_expiry: form.calendar_show_card_expiry,
       })
       if (res.success) {
         setForm(res.data)
@@ -213,6 +221,54 @@ export default function StampCardSettingsPage() {
             <p className="text-xs text-gray-400 mt-1">
               友だち追加（LINEの「追加」操作）のたびにこのクーポンを発行します。「リファラルリンク」側で個別にクーポンを設定したリンク経由の場合は、そちらが優先されます（両方同時に発行されることはありません）。
             </p>
+          </Field>
+        </Section>
+
+        <Section title="営業日カレンダー">
+          <Field label="iCal URL（任意）">
+            <input
+              type="url"
+              value={form.calendar_ical_url ?? ''}
+              onChange={(e) => set('calendar_ical_url', e.target.value || null)}
+              placeholder="https://calendar.google.com/calendar/ical/.../basic.ics"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            />
+            <p className="text-xs text-gray-400 mt-1">
+              GoogleカレンダーなどのiCal形式の公開URLを指定すると、その予定がお客様向けの「営業日カレンダー」に表示されます。
+            </p>
+          </Field>
+          <Field label="何ヶ月先まで表示するか">
+            <input
+              type="number"
+              min={1}
+              max={12}
+              value={form.calendar_months_ahead}
+              onChange={(e) => set('calendar_months_ahead', Number(e.target.value))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            />
+          </Field>
+          <Field label="クーポンの有効期限をカレンダーに表示する">
+            <select
+              value={form.calendar_show_coupon_expiry ? '1' : '0'}
+              onChange={(e) => set('calendar_show_coupon_expiry', Number(e.target.value))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            >
+              <option value="0">OFF</option>
+              <option value="1">ON</option>
+            </select>
+            <p className="text-xs text-gray-400 mt-1">
+              ONにすると、お客様が保有しているクーポンの有効期限日にカレンダー上で印が表示され、タップするとどのクーポンが切れるか確認できます。
+            </p>
+          </Field>
+          <Field label="ショップカードの有効期限をカレンダーに表示する">
+            <select
+              value={form.calendar_show_card_expiry ? '1' : '0'}
+              onChange={(e) => set('calendar_show_card_expiry', Number(e.target.value))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            >
+              <option value="0">OFF</option>
+              <option value="1">ON</option>
+            </select>
           </Field>
         </Section>
 

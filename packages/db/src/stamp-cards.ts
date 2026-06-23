@@ -39,6 +39,10 @@ export interface CardSettingsRow {
   rank_badge_layout: 'split' | 'background';
   remote_grant_min_role: 'owner' | 'admin' | 'staff';
   friend_add_coupon_template_id: string | null;
+  calendar_ical_url: string | null;
+  calendar_months_ahead: number;
+  calendar_show_coupon_expiry: number;
+  calendar_show_card_expiry: number;
   created_at: string;
   updated_at: string;
 }
@@ -128,8 +132,9 @@ export async function upsertCardSettings(
            reservation_url, stamp_image_url, shop_latitude, shop_longitude,
            shop_address, weather_check_interval_minutes, weather_check_anchor_time, rank_badge_layout,
            remote_grant_min_role, friend_add_coupon_template_id,
+           calendar_ical_url, calendar_months_ahead, calendar_show_coupon_expiry, calendar_show_card_expiry,
            created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         lineAccountId,
@@ -166,6 +171,10 @@ export async function upsertCardSettings(
         input.rank_badge_layout ?? 'split',
         input.remote_grant_min_role ?? 'owner',
         input.friend_add_coupon_template_id ?? null,
+        input.calendar_ical_url ?? null,
+        input.calendar_months_ahead ?? 3,
+        input.calendar_show_coupon_expiry ?? 0,
+        input.calendar_show_card_expiry ?? 0,
         now,
         now,
       )
