@@ -210,7 +210,7 @@ cardCoupon.get('/api/liff/calendar', async (c) => {
     ? await fetchIcalEvents(settings.calendar_ical_url, rangeStart, rangeEnd)
     : [];
 
-  const couponExpiriesByDate = new Map<string, Array<{ id: string; name: string }>>();
+  const couponExpiriesByDate = new Map<string, Array<{ id: string; name: string; imageUrl: string | null }>>();
   if (settings?.calendar_show_coupon_expiry) {
     const coupons = await getUserCoupons(c.env.DB, friend.id, { status: 'unused' });
     for (const coupon of coupons) {
@@ -218,7 +218,7 @@ cardCoupon.get('/api/liff/calendar', async (c) => {
       if (expiresAt.getTime() < rangeStart.getTime() || expiresAt.getTime() > rangeEnd.getTime()) continue;
       const dateKey = toJstDateString(expiresAt);
       const list = couponExpiriesByDate.get(dateKey) ?? [];
-      list.push({ id: coupon.id, name: coupon.display_name });
+      list.push({ id: coupon.id, name: coupon.display_name, imageUrl: coupon.display_image_url });
       couponExpiriesByDate.set(dateKey, list);
     }
   }

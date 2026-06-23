@@ -247,21 +247,52 @@ body.sc-active #app {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 1px;
+  padding-top: 3px;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: 10px;
   color: #334155;
-  background: transparent;
+  background: #fff;
+  border: 1px solid #f1f5f9;
+  overflow: hidden;
 }
-.sc-calendar-cell-marked {
-  background: #ecfdf5;
-  font-weight: 700;
+.sc-calendar-day-number {
+  font-size: 12px;
+  font-weight: 600;
+}
+/* 予定が無い日 — グレーで目立たせない */
+.sc-calendar-cell-empty {
+  background: #f1f5f9;
+  color: #94a3b8;
+}
+/* クーポン/ショップカードの有効期限が切れる日 — 見やすい赤系の背景で目立たせる */
+.sc-calendar-cell-expiry {
+  background: #fee2e2;
+  border-color: #fecaca;
+}
+.sc-calendar-event-chip {
+  font-size: 8px;
+  line-height: 1.3;
+  color: #334155;
+  background: rgba(255,255,255,0.75);
+  border-radius: 3px;
+  padding: 0 2px;
+  max-width: 95%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .sc-calendar-marker-icons {
   font-size: 9px;
   line-height: 1;
   letter-spacing: -1px;
+}
+/* 日付タップ時のポップアップ — 予定/クーポンが多い日でも、タイトルと閉じるボタンは
+   常に見える位置に固定し、中身だけスクロールできるようにする。 */
+.sc-calendar-popup-scroll {
+  max-height: 55vh;
+  overflow-y: auto;
 }
 
 /* ランクバッジ: 背景全体モード */

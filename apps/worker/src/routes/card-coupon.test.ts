@@ -125,15 +125,17 @@ describe('GET /api/liff/calendar', () => {
       calendar_show_card_expiry: 0,
     });
     dbMocks.getUserCoupons.mockResolvedValue([
-      { id: 'coupon-1', display_name: '無料クーポン', expires_at: '2026-07-05T03:00:00.000Z' }, // JST 7/5 12:00
-      { id: 'coupon-2', display_name: '8月のクーポン', expires_at: '2026-08-01T00:00:00.000Z' }, // JST 8/1 09:00 → 別月
+      { id: 'coupon-1', display_name: '無料クーポン', display_image_url: 'https://example.com/c1.png', expires_at: '2026-07-05T03:00:00.000Z' }, // JST 7/5 12:00
+      { id: 'coupon-2', display_name: '8月のクーポン', display_image_url: null, expires_at: '2026-08-01T00:00:00.000Z' }, // JST 8/1 09:00 → 別月
     ]);
 
     const app = setupApp(makeDb({ accountRow, friendRow }));
     const res = await app.request('/api/liff/calendar?liffId=liff-1&month=2026-07');
-    const json = await res.json() as { couponExpiries: Array<{ date: string; coupons: Array<{ id: string }> }> };
+    const json = await res.json() as { couponExpiries: Array<{ date: string; coupons: Array<{ id: string; name: string; imageUrl: string | null }> }> };
 
-    expect(json.couponExpiries).toEqual([{ date: '2026-07-05', coupons: [{ id: 'coupon-1', name: '無料クーポン' }] }]);
+    expect(json.couponExpiries).toEqual([
+      { date: '2026-07-05', coupons: [{ id: 'coupon-1', name: '無料クーポン', imageUrl: 'https://example.com/c1.png' }] },
+    ]);
   });
 
   test('omits coupon expiries entirely when the toggle is off, even with expiring coupons', async () => {

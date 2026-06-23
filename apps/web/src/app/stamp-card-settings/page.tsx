@@ -174,6 +174,8 @@ export default function StampCardSettingsPage() {
       <div className="p-6 max-w-2xl space-y-6">
         {error && <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg text-sm">{error}</div>}
 
+        <CustomerFacingUrls liffId={selectedAccount.liffId ?? null} />
+
         <Section title="スタンプ付与ルール">
           <Field label="付与方式">
             <select
@@ -560,6 +562,58 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div>
       <label className="block text-xs font-medium text-gray-600 mb-1.5">{label}</label>
       {children}
+    </div>
+  )
+}
+
+// リッチメニューのURLアクションに貼る用の、お客様向けLIFF URL。通常だと組み立て方が
+// 分かりにくいため、ここでそのまま読める・コピーできる形で出しておく。
+function CustomerFacingUrls({ liffId }: { liffId: string | null }) {
+  if (!liffId) {
+    return (
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs text-amber-700">
+        LIFF IDが未設定のため、お客様向けURLを表示できません。「LINEアカウント」設定でLIFF IDを登録してください。
+      </div>
+    )
+  }
+  const base = `https://liff.line.me/${liffId}?page=stamp-card`
+  return (
+    <Section title="お客様向けURL（リッチメニューのURLアクションに使えます）">
+      <CustomerUrlRow label="スタンプカードを表示するURL" url={base} />
+      <CustomerUrlRow label="営業日カレンダーを表示するURL" url={`${base}&action=calendar`} />
+    </Section>
+  )
+}
+
+function CustomerUrlRow({ label, url }: { label: string; url: string }) {
+  const [copied, setCopied] = useState(false)
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1200)
+    } catch {
+      // クリップボードAPIが使えない場合は表示されているテキストを手動選択してもらう
+    }
+  }
+  return (
+    <div>
+      <span className="text-xs font-medium text-gray-600">{label}</span>
+      <div className="flex items-stretch gap-1 mt-1">
+        <input
+          readOnly
+          value={url}
+          onFocus={(e) => e.currentTarget.select()}
+          className="flex-1 border border-gray-200 rounded px-2 py-1.5 text-xs font-mono bg-gray-50 text-gray-700 truncate"
+        />
+        <button
+          type="button"
+          onClick={onCopy}
+          className="px-3 rounded text-xs font-medium border border-gray-200 hover:bg-gray-50 whitespace-nowrap"
+        >
+          {copied ? '✓ コピー済' : 'コピー'}
+        </button>
+      </div>
     </div>
   )
 }

@@ -218,7 +218,8 @@ const COUPON_STATUS_LABEL: Record<CouponItem['status'], string> = {
 // ── 営業日カレンダー ──────────────────────────────────────────────
 
 interface CalendarEventInfo { date: string; title: string }
-interface CalendarCouponExpiry { date: string; coupons: Array<{ id: string; name: string }> }
+interface CalendarExpiringCoupon { id: string; name: string; imageUrl: string | null }
+interface CalendarCouponExpiry { date: string; coupons: CalendarExpiringCoupon[] }
 interface CalendarResponse {
   month: string; // "YYYY-MM"
   canGoPrev: boolean;
@@ -238,8 +239,13 @@ function shiftMonthKey(monthKey: string, delta: number): string {
 
 interface DayMarkers {
   eventTitles: string[];
-  couponNames: string[];
+  coupons: CalendarExpiringCoupon[];
   cardExpiry: boolean;
+}
+
+// 日付マス内には限られたスペースしかないため、予定タイトルは数文字に詰めて表示する。
+function truncateTitle(title: string, max = 3): string {
+  return title.length > max ? title.slice(0, max) : title;
 }
 
 // リッチメニュー単独画面 (action=calendar) とスタンプカード画面への埋め込みの両方から使う、
@@ -270,13 +276,13 @@ function CalendarWidget({ ctx }: { ctx: StampCardContext }) {
   const markerFor = (date: string): DayMarkers => {
     let entry = markersByDate.get(date);
     if (!entry) {
-      entry = { eventTitles: [], couponNames: [], cardExpiry: false };
+      entry = { eventTitles: [], coupons: [], cardExpiry: false };
       markersByDate.set(date, entry);
     }
     return entry;
   };
   for (const e of data.events) markerFor(e.date).eventTitles.push(e.title);
-  for (const ce of data.couponExpiries) markerFor(ce.date).couponNames.push(...ce.coupons.map((c) => c.name));
+  for (const ce of data.couponExpiries) markerFor(ce.date).coupons.push(...ce.coupons);
   if (data.cardExpiryDate) markerFor(data.cardExpiryDate).cardExpiry = true;
 
   const cells: Array<{ day: number; date: string } | null> = [];
@@ -313,20 +319,27 @@ function CalendarWidget({ ctx }: { ctx: StampCardContext }) {
           <div key={w} className="sc-calendar-weekday">{w}</div>
         ))}
         {cells.map((cell, i) => {
-          if (!cell) return <div key={`empty-${i}`} />;
+          if (!cell) return <div key={`pad-${i}`} />;
           const markers = markersByDate.get(cell.date);
-          const hasMarker = !!markers && (markers.eventTitles.length > 0 || markers.couponNames.length > 0 || markers.cardExpiry);
+          const hasExpiry = !!markers && (markers.coupons.length > 0 || markers.cardExpiry);
+          const hasEvent = !!markers && markers.eventTitles.length > 0;
+          const cellClass = hasExpiry ? 'sc-calendar-cell-expiry' : hasEvent ? '' : 'sc-calendar-cell-empty';
+          const visibleTitles = markers ? markers.eventTitles.slice(0, 2) : [];
+          const overflowCount = markers ? Math.max(0, markers.eventTitles.length - 2) : 0;
           return (
             <button
               key={cell.date}
-              onClick={() => hasMarker && setSelectedDate(cell.date)}
-              className={`sc-calendar-cell ${hasMarker ? 'sc-calendar-cell-marked' : ''}`}
+              onClick={() => (hasEvent || hasExpiry) && setSelectedDate(cell.date)}
+              className={`sc-calendar-cell ${cellClass}`}
             >
-              <span>{cell.day}</span>
-              {hasMarker && (
+              <span className="sc-calendar-day-number">{cell.day}</span>
+              {visibleTitles.map((title, idx) => (
+                <span key={idx} className="sc-calendar-event-chip">{truncateTitle(title)}</span>
+              ))}
+              {overflowCount > 0 && <span className="sc-calendar-event-chip">+{overflowCount}</span>}
+              {hasExpiry && (
                 <span className="sc-calendar-marker-icons">
-                  {markers!.eventTitles.length > 0 && '📅'}
-                  {markers!.couponNames.length > 0 && '🎟️'}
+                  {markers!.coupons.length > 0 && '🎟️'}
                   {markers!.cardExpiry && '🏷️'}
                 </span>
               )}
@@ -339,20 +352,31 @@ function CalendarWidget({ ctx }: { ctx: StampCardContext }) {
         <Modal onClose={() => setSelectedDate(null)}>
           <div className="p-4">
             <div className="text-sm font-bold text-gray-900 mb-2">{formatJpDate(selectedDate)}</div>
-            {selected.eventTitles.map((title, i) => (
-              <div key={i} className="text-sm text-gray-700 mb-1">📅 {title}</div>
-            ))}
-            {selected.couponNames.length > 0 && (
-              <div className="mt-2">
-                <div className="text-xs font-bold" style={{ color: '#e11d48' }}>この日が有効期限のクーポン</div>
-                {selected.couponNames.map((name, i) => (
-                  <div key={i} className="text-sm text-gray-700">🎟️ {name}</div>
-                ))}
-              </div>
-            )}
-            {selected.cardExpiry && (
-              <div className="text-sm mt-2" style={{ color: '#e11d48' }}>🏷️ ショップカードの有効期限です</div>
-            )}
+            <div className="sc-calendar-popup-scroll">
+              {selected.eventTitles.map((title, i) => (
+                <div key={i} className="text-sm text-gray-700 mb-1">📅 {title}</div>
+              ))}
+              {selected.cardExpiry && (
+                <div className="text-sm font-bold mt-2 mb-2" style={{ color: '#e11d48' }}>🏷️ ショップカードの有効期限です</div>
+              )}
+              {selected.coupons.length > 0 && (
+                <div className="mt-2">
+                  <div className="text-xs font-bold mb-1.5" style={{ color: '#e11d48' }}>この日が有効期限のクーポン</div>
+                  <div className="space-y-1.5">
+                    {selected.coupons.map((coupon) => (
+                      <div key={coupon.id} className="flex items-center gap-2 bg-gray-50 rounded-lg p-1.5">
+                        {coupon.imageUrl ? (
+                          <img src={coupon.imageUrl} alt="" className="w-10 h-10 rounded-md object-cover shrink-0" />
+                        ) : (
+                          <div className="w-10 h-10 rounded-md bg-gradient-to-br from-green-100 to-green-200 shrink-0 flex items-center justify-center text-base">🎟️</div>
+                        )}
+                        <div className="text-sm text-gray-900 font-medium flex-1 min-w-0 truncate">{coupon.name}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
             <button onClick={() => setSelectedDate(null)} className="sc-secondary-btn mt-4">閉じる</button>
           </div>
         </Modal>
@@ -363,7 +387,7 @@ function CalendarWidget({ ctx }: { ctx: StampCardContext }) {
 
 function CalendarScreen({ ctx, onBack }: { ctx: StampCardContext; onBack: () => void }) {
   return (
-    <div className="px-4 py-4 pb-10 sc-fade-in">
+    <div className="px-4 pt-6 pb-10 sc-fade-in">
       <button onClick={onBack} className="sc-back-btn">← 戻る</button>
       <CalendarWidget ctx={ctx} />
     </div>
@@ -628,18 +652,16 @@ function CardScreen({ ctx, onShowCoupons, onShowQr }: { ctx: StampCardContext; o
       <BirthdaySection ctx={ctx} birthday={birthday} onSaved={(b) => setData((d) => (d ? { ...d, birthday: b } : d))} />
       {extendedAt ? <ExtendedNotice newExpiresAt={extendedAt} /> : <ExtendSection ctx={ctx} card={card} onExtended={setExtendedAt} />}
       <button onClick={onShowQr} className="sc-primary-btn mt-3">
-        スタッフにスタンプを押してもらう
+        🟢 スタッフにスタンプを押してもらう
+      </button>
+      <button onClick={onShowCoupons} className="sc-secondary-btn mt-2">
+        🎟️ 保有しているクーポンを見る
       </button>
       {reservationUrl && (
         <a href={reservationUrl} className="sc-secondary-btn mt-2 block text-center">
           予約する
         </a>
       )}
-      <div className="text-center mt-5">
-        <button onClick={onShowCoupons} className="text-sm sc-line-green-text underline">
-          保有しているクーポンを見る
-        </button>
-      </div>
       <CalendarWidget ctx={ctx} />
     </div>
   );
@@ -1040,7 +1062,7 @@ function CouponListScreen({ ctx, onBack }: { ctx: StampCardContext; onBack: () =
   }, [ctx]);
 
   return (
-    <div className="px-4 py-4 pb-10 sc-fade-in">
+    <div className="px-4 pt-6 pb-10 sc-fade-in">
       <button onClick={onBack} className="sc-back-btn">← 戻る</button>
       {loading ? <Spinner /> : items.length === 0 ? (
         <div className="sc-card text-center text-sm text-gray-500 mt-3">利用可能なクーポンはありません</div>
@@ -1121,7 +1143,7 @@ function App({ ctx, initial }: { ctx: StampCardContext; initial: Screen }) {
   return (
     <div className="min-h-screen" style={{ background: '#f5f5f5' }}>
       <header className="px-4 py-3 text-white text-center font-bold sticky top-0 z-20" style={{ background: '#06C755', fontSize: '15px' }}>
-        スタンプカード
+        {screen.kind === 'calendar' ? 'カレンダー' : 'スタンプカード'}
       </header>
       <main className="max-w-md mx-auto">
         {screen.kind === 'card' && (
