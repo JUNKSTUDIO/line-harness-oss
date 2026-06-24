@@ -15,7 +15,12 @@ import {
 } from '@line-crm/db';
 import type { LineClient } from '@line-crm/line-sdk';
 import type { Message } from '@line-crm/line-sdk';
-import { jitterDeliveryTime, addJitter, sleep } from './stealth.js';
+import { jitterDeliveryTime, jitterEarlyDelivery, addJitter, sleep } from './stealth.js';
+
+/** ステップ単位の early_jitter_enabled に応じて、常に早めるジッターと既存の対称ジッターを切り替える。 */
+function applyStepJitter(step: { early_jitter_enabled?: number }, scheduledAt: Date): Date {
+  return step.early_jitter_enabled ? jitterEarlyDelivery(scheduledAt) : jitterDeliveryTime(scheduledAt);
+}
 
 /**
  * Replace template variables in message content.
@@ -168,7 +173,7 @@ async function processSingleDelivery(
   // +9h ずらして JST clock-time 表現に揃える必要がある。
   const enrolledAtDate = new Date(new Date(fs.started_at).getTime() + 9 * 60 * 60_000);
   const nowJstDate = new Date(Date.now() + 9 * 60 * 60_000);
-  const nextDeliveryFor = (step: { delay_minutes: number; offset_days: number | null; offset_minutes: number | null; delivery_time: string | null }): Date =>
+  const nextDeliveryFor = (step: { delay_minutes: number; offset_days: number | null; offset_minutes: number | null; delivery_time: string | null; pin_delivery_time?: string | null }): Date =>
     computeNextDeliveryAt(
       { delivery_mode: scenarioRow.delivery_mode },
       step,
@@ -191,7 +196,7 @@ async function processSingleDelivery(
       if (currentStep.next_step_on_false !== null && currentStep.next_step_on_false !== undefined) {
         const jumpStep = steps.find((s) => s.step_order === currentStep.next_step_on_false);
         if (jumpStep) {
-          const jitteredDate = jitterDeliveryTime(nextDeliveryFor(jumpStep));
+          const jitteredDate = applyStepJitter(jumpStep, nextDeliveryFor(jumpStep));
           await advanceFriendScenario(db, fs.id, currentStep.step_order, jitteredDate.toISOString().slice(0, -1) + '+09:00');
           return false;
         }
@@ -199,7 +204,7 @@ async function processSingleDelivery(
       const nextIndex = steps.indexOf(currentStep) + 1;
       if (nextIndex < steps.length) {
         const nextStep = steps[nextIndex];
-        const jitteredDate = jitterDeliveryTime(nextDeliveryFor(nextStep));
+        const jitteredDate = applyStepJitter(nextStep, nextDeliveryFor(nextStep));
         await advanceFriendScenario(db, fs.id, currentStep.step_order, jitteredDate.toISOString().slice(0, -1) + '+09:00');
       } else {
         await completeFriendScenario(db, fs.id);
@@ -274,7 +279,7 @@ async function processSingleDelivery(
   const nextStep = currentIndex + 1 < steps.length ? steps[currentIndex + 1] : null;
 
   if (nextStep) {
-    const jitteredDate = jitterDeliveryTime(nextDeliveryFor(nextStep));
+    const jitteredDate = applyStepJitter(nextStep, nextDeliveryFor(nextStep));
     await advanceFriendScenario(db, fs.id, currentStep.step_order, jitteredDate.toISOString().slice(0, -1) + '+09:00');
   } else {
     // This was the last step
@@ -288,6 +293,38 @@ async function processSingleDelivery(
       await addTagToFriend(db, friend.id, currentStep.on_reach_tag_id);
     } catch (err) {
       console.error(`[scenario] tag attach failed step=${currentStep.id}:`, err);
+    }
+  }
+
+  // 到達時のスタンプ付与・クーポン発行。スタンプカード/クーポンはアカウント単位のため、
+  // 友だちがどのアカウントにも紐付いていない場合はスキップする (タグ付与と同様ベストエフォート)。
+  if ((currentStep.on_reach_stamp_count || currentStep.on_reach_coupon_template_id) && friendAccountId) {
+    if (currentStep.on_reach_stamp_count) {
+      try {
+        const { grantStamp } = await import('@line-crm/db');
+        await grantStamp(db, {
+          friendId: friend.id,
+          lineAccountId: friendAccountId,
+          source: 'manual',
+          manualBasePoints: currentStep.on_reach_stamp_count,
+          skipMultiplier: true,
+        });
+      } catch (err) {
+        console.error(`[scenario] stamp grant failed step=${currentStep.id}:`, err);
+      }
+    }
+    if (currentStep.on_reach_coupon_template_id) {
+      try {
+        const { issueCoupon } = await import('@line-crm/db');
+        await issueCoupon(db, {
+          friendId: friend.id,
+          lineAccountId: friendAccountId,
+          couponTemplateId: currentStep.on_reach_coupon_template_id,
+          issuedVia: 'campaign',
+        });
+      } catch (err) {
+        console.error(`[scenario] coupon issue failed step=${currentStep.id}:`, err);
+      }
     }
   }
   return true;

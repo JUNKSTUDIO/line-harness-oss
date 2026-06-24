@@ -413,6 +413,10 @@ export const api = {
         deliveryTime?: string
         templateId?: string | null
         onReachTagId?: string | null
+        onReachStampCount?: number | null
+        onReachCouponTemplateId?: string | null
+        pinDeliveryTime?: string | null
+        earlyJitterEnabled?: boolean
       },
     ) =>
       fetchApi<ApiResponse<ScenarioStep>>(`/api/scenarios/${id}/steps`, {
@@ -433,6 +437,10 @@ export const api = {
         deliveryTime?: string
         templateId?: string | null
         onReachTagId?: string | null
+        onReachStampCount?: number | null
+        onReachCouponTemplateId?: string | null
+        pinDeliveryTime?: string | null
+        earlyJitterEnabled?: boolean
       },
     ) =>
       fetchApi<ApiResponse<ScenarioStep>>(`/api/scenarios/${id}/steps/${stepId}`, {

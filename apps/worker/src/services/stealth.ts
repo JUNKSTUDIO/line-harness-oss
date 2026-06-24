@@ -87,6 +87,18 @@ export function jitterDeliveryTime(scheduledAt: Date): Date {
 }
 
 /**
+ * 常に早める方向のみのジッター (6〜14分)。ステップごとに on_reach 等と同様に
+ * 個別ON/OFFできる「予約配信と分かりづらくする」オプション用 — jitterDeliveryTime
+ * (±5分対称) の代わりにこちらを使う。
+ */
+export function jitterEarlyDelivery(scheduledAt: Date): Date {
+  const earlyMinutes = 6 + Math.floor(Math.random() * 9); // 6〜14分
+  const result = new Date(scheduledAt);
+  result.setMinutes(result.getMinutes() - earlyMinutes);
+  return result;
+}
+
+/**
  * Rate limiter for LINE API calls.
  * LINE rate limit is 100,000 messages/min, but we stay well under.
  */

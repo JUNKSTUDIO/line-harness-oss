@@ -71,7 +71,8 @@
     "063_friend_add_coupon_log.sql",
     "064_business_calendar.sql",
     "065_form_result_message.sql",
-    "066_scenario_step_messages.sql"
+    "066_scenario_step_messages.sql",
+    "067_scenario_step_rewards_and_schedule.sql"
   ],
-  "migrationCount": 72
+  "migrationCount": 73
 }

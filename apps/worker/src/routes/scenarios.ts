@@ -90,6 +90,10 @@ function serializeStep(row: DbScenarioStep, messages?: DbScenarioStepMessage[]) 
     nextStepOnFalse: row.next_step_on_false ?? null,
     templateId: row.template_id ?? null,
     onReachTagId: row.on_reach_tag_id ?? null,
+    onReachStampCount: row.on_reach_stamp_count ?? null,
+    onReachCouponTemplateId: row.on_reach_coupon_template_id ?? null,
+    pinDeliveryTime: row.pin_delivery_time ?? null,
+    earlyJitterEnabled: Boolean(row.early_jitter_enabled),
     createdAt: row.created_at,
     messages: serializeStepMessages(row, messages),
   };
@@ -374,6 +378,10 @@ scenarios.post('/api/scenarios/:id/steps', async (c) => {
       nextStepOnFalse?: number | null;
       templateId?: string | null;
       onReachTagId?: string | null;
+      onReachStampCount?: number | null;
+      onReachCouponTemplateId?: string | null;
+      pinDeliveryTime?: string | null;
+      earlyJitterEnabled?: boolean;
     }>();
 
     const rawMessages: RawStepMessageInput[] =
@@ -417,6 +425,16 @@ scenarios.post('/api/scenarios/:id/steps', async (c) => {
         .first<{ id: string }>();
       if (!tag) return c.json({ success: false, error: 'onReachTagId not found' }, 400);
     }
+    if (body.onReachCouponTemplateId != null) {
+      const tpl = await c.env.DB
+        .prepare(`SELECT id FROM coupon_templates WHERE id = ?`)
+        .bind(body.onReachCouponTemplateId)
+        .first<{ id: string }>();
+      if (!tpl) return c.json({ success: false, error: 'onReachCouponTemplateId not found' }, 400);
+    }
+    if (body.pinDeliveryTime != null && !HHMM_RE.test(body.pinDeliveryTime)) {
+      return c.json({ success: false, error: 'pinDeliveryTime must be "HH:MM"' }, 400);
+    }
 
     const step = await createScenarioStep(c.env.DB, {
       scenarioId,
@@ -432,6 +450,10 @@ scenarios.post('/api/scenarios/:id/steps', async (c) => {
       deliveryTime: body.deliveryTime ?? null,
       templateId: resolvedMessages[0].templateId,
       onReachTagId: body.onReachTagId ?? null,
+      onReachStampCount: body.onReachStampCount ?? null,
+      onReachCouponTemplateId: body.onReachCouponTemplateId ?? null,
+      pinDeliveryTime: body.pinDeliveryTime ?? null,
+      earlyJitterEnabled: body.earlyJitterEnabled ?? false,
     });
 
     const messages = await replaceScenarioStepMessages(c.env.DB, step.id, resolvedMessages);
@@ -462,6 +484,10 @@ scenarios.put('/api/scenarios/:id/steps/:stepId', async (c) => {
       nextStepOnFalse?: number | null;
       templateId?: string | null;
       onReachTagId?: string | null;
+      onReachStampCount?: number | null;
+      onReachCouponTemplateId?: string | null;
+      pinDeliveryTime?: string | null;
+      earlyJitterEnabled?: boolean;
     }>();
 
     // メッセージ関連フィールドが何も指定されていなければメッセージは不変 (例: stepOrder だけ更新)。
@@ -498,6 +524,16 @@ scenarios.put('/api/scenarios/:id/steps/:stepId', async (c) => {
         .bind(body.onReachTagId)
         .first<{ id: string }>();
       if (!tag) return c.json({ success: false, error: 'onReachTagId not found' }, 400);
+    }
+    if (body.onReachCouponTemplateId !== undefined && body.onReachCouponTemplateId !== null) {
+      const tpl = await c.env.DB
+        .prepare(`SELECT id FROM coupon_templates WHERE id = ?`)
+        .bind(body.onReachCouponTemplateId)
+        .first<{ id: string }>();
+      if (!tpl) return c.json({ success: false, error: 'onReachCouponTemplateId not found' }, 400);
+    }
+    if (body.pinDeliveryTime !== undefined && body.pinDeliveryTime !== null && !HHMM_RE.test(body.pinDeliveryTime)) {
+      return c.json({ success: false, error: 'pinDeliveryTime must be "HH:MM"' }, 400);
     }
 
     // スケジュールフィールドが1つでも指定されている場合は、既存値を DB から読んで
@@ -585,6 +621,10 @@ scenarios.put('/api/scenarios/:id/steps/:stepId', async (c) => {
       delivery_time: body.deliveryTime,
       template_id: resolvedMessages ? resolvedMessages[0].templateId : undefined,
       on_reach_tag_id: body.onReachTagId,
+      on_reach_stamp_count: body.onReachStampCount,
+      on_reach_coupon_template_id: body.onReachCouponTemplateId,
+      pin_delivery_time: body.pinDeliveryTime,
+      early_jitter_enabled: body.earlyJitterEnabled !== undefined ? (body.earlyJitterEnabled ? 1 : 0) : undefined,
     });
 
     if (!updated) {
@@ -704,7 +744,7 @@ scenarios.get('/api/scenarios/:id/preview', async (c) => {
     const stepsResult = await c.env.DB
       .prepare(
         `SELECT id, step_order, delay_minutes, offset_days, offset_minutes, delivery_time,
-                template_id, message_type, message_content
+                pin_delivery_time, template_id, message_type, message_content
          FROM scenario_steps WHERE scenario_id = ? ORDER BY step_order ASC`,
       )
       .bind(scenarioId)
@@ -715,6 +755,7 @@ scenarios.get('/api/scenarios/:id/preview', async (c) => {
         offset_days: number | null;
         offset_minutes: number | null;
         delivery_time: string | null;
+        pin_delivery_time: string | null;
         template_id: string | null;
         message_type: string;
         message_content: string;

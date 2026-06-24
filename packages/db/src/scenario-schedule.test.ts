@@ -20,6 +20,42 @@ describe('computeNextDeliveryAt', () => {
       const result = computeNextDeliveryAt(scenario, step, { enrolledAt, previousDeliveredAt: enrolledAt, now });
       expect(result.toISOString()).toBe(enrolledAt.toISOString());
     });
+
+    describe('pin_delivery_time (ステップ別の送信時刻指定)', () => {
+      it('schedules N days after previousDeliveredAt at the pinned clock time', () => {
+        const scenario: ScenarioRow = { delivery_mode: 'relative' };
+        // delay_minutes = 1440 (1日) ÷ 1440 = 1日後
+        const step: StepRow = { delay_minutes: 1440, offset_days: null, offset_minutes: null, delivery_time: null, pin_delivery_time: '17:00' };
+        const previous = new Date('2026-05-09T15:00:00+09:00');
+        const result = computeNextDeliveryAt(scenario, step, { enrolledAt, previousDeliveredAt: previous, now });
+        expect(result.toISOString()).toBe(new Date('2026-05-10T17:00:00+09:00').toISOString());
+      });
+
+      it('crosses midnight (1日 = calendar day, not 24h from previous clock time)', () => {
+        const scenario: ScenarioRow = { delivery_mode: 'relative' };
+        const step: StepRow = { delay_minutes: 1440, offset_days: null, offset_minutes: null, delivery_time: null, pin_delivery_time: '08:00' };
+        // 前ステップ配信が23:50でも、1日後の08:00 (24h以内) に配信される — 「夜中0時をまたぐ」日付定義
+        const previous = new Date('2026-05-09T23:50:00+09:00');
+        const result = computeNextDeliveryAt(scenario, step, { enrolledAt, previousDeliveredAt: previous, now });
+        expect(result.toISOString()).toBe(new Date('2026-05-10T08:00:00+09:00').toISOString());
+      });
+
+      it('rounds delay_minutes to the nearest whole day for the day offset', () => {
+        const scenario: ScenarioRow = { delivery_mode: 'relative' };
+        const step: StepRow = { delay_minutes: 2880, offset_days: null, offset_minutes: null, delivery_time: null, pin_delivery_time: '09:30' };
+        const previous = new Date('2026-05-09T15:00:00+09:00');
+        const result = computeNextDeliveryAt(scenario, step, { enrolledAt, previousDeliveredAt: previous, now });
+        expect(result.toISOString()).toBe(new Date('2026-05-11T09:30:00+09:00').toISOString());
+      });
+
+      it('is ignored (falls back to plain delay_minutes) when pin_delivery_time is not set', () => {
+        const scenario: ScenarioRow = { delivery_mode: 'relative' };
+        const step: StepRow = { delay_minutes: 1440, offset_days: null, offset_minutes: null, delivery_time: null };
+        const previous = new Date('2026-05-09T15:00:00+09:00');
+        const result = computeNextDeliveryAt(scenario, step, { enrolledAt, previousDeliveredAt: previous, now });
+        expect(result.toISOString()).toBe(new Date('2026-05-10T15:00:00+09:00').toISOString());
+      });
+    });
   });
 
   describe('elapsed mode', () => {

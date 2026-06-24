@@ -33,6 +33,14 @@ export interface ScenarioStep {
   delivery_time: string | null;
   template_id: string | null;
   on_reach_tag_id: string | null;
+  /** 到達時に付与するスタンプ数 (倍率ルール等は適用せずこの数値をそのまま付与する) */
+  on_reach_stamp_count: number | null;
+  /** 到達時に発行するクーポンのテンプレートID */
+  on_reach_coupon_template_id: string | null;
+  /** relative モード限定: セットされていれば前ステップ配信時刻からNカレンダー日後のこの時刻 ("HH:MM") に配信する */
+  pin_delivery_time: string | null;
+  /** trueなら配信を常に6〜14分早める (予約配信と分かりづらくする)。falseなら既存の±5分対称ジッター */
+  early_jitter_enabled: number;
   created_at: string;
 }
 
@@ -207,6 +215,10 @@ export interface CreateScenarioStepInput {
   deliveryTime?: string | null;
   templateId?: string | null;
   onReachTagId?: string | null;
+  onReachStampCount?: number | null;
+  onReachCouponTemplateId?: string | null;
+  pinDeliveryTime?: string | null;
+  earlyJitterEnabled?: boolean;
 }
 
 export async function createScenarioStep(
@@ -222,9 +234,10 @@ export async function createScenarioStep(
        (id, scenario_id, step_order, delay_minutes, message_type, message_content,
         condition_type, condition_value, next_step_on_false,
         offset_days, offset_minutes, delivery_time,
-        template_id, on_reach_tag_id,
+        template_id, on_reach_tag_id, on_reach_stamp_count, on_reach_coupon_template_id,
+        pin_delivery_time, early_jitter_enabled,
         created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id,
@@ -241,6 +254,10 @@ export async function createScenarioStep(
       input.deliveryTime ?? null,
       input.templateId ?? null,
       input.onReachTagId ?? null,
+      input.onReachStampCount ?? null,
+      input.onReachCouponTemplateId ?? null,
+      input.pinDeliveryTime ?? null,
+      input.earlyJitterEnabled ? 1 : 0,
       now,
     )
     .run();
@@ -266,6 +283,10 @@ export type UpdateScenarioStepInput = Partial<
     | 'delivery_time'
     | 'template_id'
     | 'on_reach_tag_id'
+    | 'on_reach_stamp_count'
+    | 'on_reach_coupon_template_id'
+    | 'pin_delivery_time'
+    | 'early_jitter_enabled'
   >
 >;
 
@@ -324,6 +345,22 @@ export async function updateScenarioStep(
   if (updates.on_reach_tag_id !== undefined) {
     fields.push('on_reach_tag_id = ?');
     values.push(updates.on_reach_tag_id);
+  }
+  if (updates.on_reach_stamp_count !== undefined) {
+    fields.push('on_reach_stamp_count = ?');
+    values.push(updates.on_reach_stamp_count);
+  }
+  if (updates.on_reach_coupon_template_id !== undefined) {
+    fields.push('on_reach_coupon_template_id = ?');
+    values.push(updates.on_reach_coupon_template_id);
+  }
+  if (updates.pin_delivery_time !== undefined) {
+    fields.push('pin_delivery_time = ?');
+    values.push(updates.pin_delivery_time);
+  }
+  if (updates.early_jitter_enabled !== undefined) {
+    fields.push('early_jitter_enabled = ?');
+    values.push(updates.early_jitter_enabled);
   }
 
   if (fields.length > 0) {
@@ -459,7 +496,7 @@ export async function enrollFriendInScenario(
 
   const firstStep = await db
     .prepare(
-      `SELECT step_order, delay_minutes, offset_days, offset_minutes, delivery_time
+      `SELECT step_order, delay_minutes, offset_days, offset_minutes, delivery_time, pin_delivery_time
        FROM scenario_steps WHERE scenario_id = ? ORDER BY step_order ASC LIMIT 1`,
     )
     .bind(scenarioId)
@@ -469,6 +506,7 @@ export async function enrollFriendInScenario(
       offset_days: number | null;
       offset_minutes: number | null;
       delivery_time: string | null;
+      pin_delivery_time: string | null;
     }>();
 
   // A scenario with no steps is immediately completed — no stuck active enrollment.

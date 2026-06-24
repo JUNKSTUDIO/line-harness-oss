@@ -176,6 +176,14 @@ export interface ScenarioStep {
   templateId?: string | null;
   /** このステップ到達時に付与するタグ ID */
   onReachTagId?: string | null;
+  /** このステップ到達時に付与するスタンプ数 (倍率ルール等は無視してそのまま付与) */
+  onReachStampCount?: number | null;
+  /** このステップ到達時に発行するクーポンのテンプレートID */
+  onReachCouponTemplateId?: string | null;
+  /** relative mode限定: セットされていれば前ステップ配信時刻からNカレンダー日後のこの時刻 ("HH:MM") に配信する */
+  pinDeliveryTime?: string | null;
+  /** trueなら配信を常に6〜14分早める (予約配信と分かりづらくする)。falseなら既存の±5分対称ジッター */
+  earlyJitterEnabled?: boolean;
   /** メッセージ種別 — messages[0] と同じ (後方互換用) */
   messageType: MessageType;
   /** メッセージ内容 — messages[0] と同じ (後方互換用) */

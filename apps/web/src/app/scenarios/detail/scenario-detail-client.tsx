@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 
 import Link from 'next/link'
 import type { Scenario, ScenarioStep, ScenarioTriggerType, MessageType, DeliveryMode } from '@line-crm/shared'
+import { useAccount } from '@/contexts/account-context'
 import {
   DndContext,
   closestCenter,
@@ -29,6 +30,7 @@ import ScheduleInput, {
   emptySchedule,
   buildSchedulePayload,
   uiFromOffsetMinutes,
+  uiFromDelayMinutes,
   type ScheduleValue,
 } from '@/components/scenarios/schedule-input'
 import BulkPreviewModal from '@/components/scenarios/bulk-preview-modal'
@@ -105,6 +107,8 @@ interface StepFormState {
   schedule: ScheduleValue
   bubbles: BubbleFormState[]
   onReachTagId: string | null
+  onReachStampCount: number | null
+  onReachCouponTemplateId: string | null
 }
 
 function emptyStepForm(stepOrder: number): StepFormState {
@@ -113,6 +117,8 @@ function emptyStepForm(stepOrder: number): StepFormState {
     schedule: { ...emptySchedule },
     bubbles: [emptyBubble()],
     onReachTagId: null,
+    onReachStampCount: null,
+    onReachCouponTemplateId: null,
   }
 }
 
@@ -164,6 +170,54 @@ function ImagePreview({ content }: { content: string }) {
   } catch {
     return <p className="text-xs text-red-500">画像 JSON パースエラー</p>
   }
+}
+
+function VariableInsertButton({
+  metadataFields,
+  onInsert,
+}: {
+  metadataFields: Array<{ key: string; label: string }>
+  onInsert: (token: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const insert = (token: string) => { onInsert(token); setOpen(false) }
+  return (
+    <div className="relative inline-block">
+      <button type="button" onClick={() => setOpen((o) => !o)} className="text-xs text-blue-600 hover:underline">
+        🔤 フィールドを挿入
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 z-20 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg py-1 max-h-56 overflow-y-auto">
+            <button type="button" onClick={() => insert('{{name}}')} className="block w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50">
+              友だちの表示名 (LINE名) <span className="text-gray-400">{'{{name}}'}</span>
+            </button>
+            <button type="button" onClick={() => insert('{{uid}}')} className="block w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50">
+              友だちのUID <span className="text-gray-400">{'{{uid}}'}</span>
+            </button>
+            {metadataFields.length > 0 && (
+              <>
+                <div className="border-t border-gray-100 my-1" />
+                <p className="px-3 py-1 text-[10px] text-gray-400">アンケート回答から</p>
+                {metadataFields.map((f, i) => (
+                  <button
+                    key={`${f.key}-${i}`}
+                    type="button"
+                    onClick={() => insert(`{{metadata.${f.key}}}`)}
+                    className="block w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 truncate"
+                    title={f.label}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
 }
 
 function SortableStepRow({
@@ -264,6 +318,9 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
   const [stats, setStats] = useState<ScenarioStats | null>(null)
   const [templates, setTemplates] = useState<TemplateOpt[]>([])
   const [tags, setTags] = useState<TagOpt[]>([])
+  const [couponTemplates, setCouponTemplates] = useState<Array<{ id: string; name: string }>>([])
+  const [metadataFields, setMetadataFields] = useState<Array<{ key: string; label: string }>>([])
+  const { selectedAccount } = useAccount()
 
   const deliveryMode: DeliveryMode = (scenario?.deliveryMode ?? 'relative') as DeliveryMode
 
@@ -330,6 +387,32 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
     return () => { cancelled = true }
   }, [id])
 
+  useEffect(() => {
+    if (!selectedAccount) return
+    api.couponTemplates.list(selectedAccount.id).then((res) => {
+      if (res.success) setCouponTemplates(res.data.map((t) => ({ id: t.id, name: t.name })))
+    }).catch(() => {})
+  }, [selectedAccount])
+
+  // 「フィールドを挿入」ボタン用: 既存アンケートの設問一覧から {{metadata.KEY}} の候補を集める
+  // (回答が friends.metadata に保存される設問のみ意味があるが、判定が複雑になるため全設問を対象にする)。
+  useEffect(() => {
+    let cancelled = false
+    api.forms.list().then(async (res) => {
+      if (!res.success || cancelled) return
+      const fields: Array<{ key: string; label: string }> = []
+      for (const f of res.data) {
+        const detail = await api.forms.get(f.id).catch(() => null)
+        if (!detail?.success) continue
+        for (const field of detail.data.fields) {
+          fields.push({ key: field.name, label: `${f.name} - ${field.label || field.name}` })
+        }
+      }
+      if (!cancelled) setMetadataFields(fields)
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
   const reloadStats = useCallback(() => {
     api.scenarios.stats(id).then((r) => { if (r.success) setStats(r.data) }).catch(() => {})
   }, [id])
@@ -368,6 +451,7 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
 
   const openEditStep = (step: ScenarioStep) => {
     const ui = uiFromOffsetMinutes(step.offsetMinutes)
+    const relativeUi = uiFromDelayMinutes(step.delayMinutes)
     const sourceMessages = step.messages.length > 0
       ? step.messages
       : [{ id: null, orderIndex: 0, messageType: step.messageType, messageContent: step.messageContent, templateId: step.templateId ?? null }]
@@ -375,6 +459,10 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
       stepOrder: step.stepOrder,
       schedule: {
         delayMinutes: step.delayMinutes,
+        relativeUnit: relativeUi.relativeUnit,
+        relativeUnitValue: relativeUi.relativeUnitValue,
+        pinDeliveryTime: step.pinDeliveryTime ?? null,
+        earlyJitterEnabled: step.earlyJitterEnabled ?? false,
         offsetDays: step.offsetDays ?? 0,
         offsetHours: ui.offsetHours,
         offsetMinutesRemainder: ui.offsetMinutesRemainder,
@@ -387,6 +475,8 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
         inputMode: m.templateId ? 'template' : 'direct',
       })),
       onReachTagId: step.onReachTagId ?? null,
+      onReachStampCount: step.onReachStampCount ?? null,
+      onReachCouponTemplateId: step.onReachCouponTemplateId ?? null,
     })
     setSelectedStepId(step.id)
     setShowStepForm(true)
@@ -443,6 +533,8 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
         ...schedulePayload,
         messages,
         onReachTagId: stepForm.onReachTagId,
+        onReachStampCount: stepForm.onReachStampCount,
+        onReachCouponTemplateId: stepForm.onReachCouponTemplateId,
       }
       let savedId = selectedStepId
       if (selectedStepId) {
@@ -826,9 +918,15 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
                             <option key={opt.value} value={opt.value}>{opt.label}</option>
                           ))}
                         </select>
+                        <div className="flex justify-end">
+                          <VariableInsertButton
+                            metadataFields={metadataFields}
+                            onInsert={(token) => updateBubble(i, { messageContent: bubble.messageContent + token })}
+                          />
+                        </div>
                         <textarea
-                          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs resize-none"
-                          rows={3}
+                          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs resize-y"
+                          rows={10}
                           placeholder="メッセージ内容を入力..."
                           value={bubble.messageContent}
                           onChange={(e) => updateBubble(i, { messageContent: e.target.value })}
@@ -868,6 +966,39 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
                   </select>
                   <p className="text-xs text-gray-400 mt-0.5">
                     このステップが配信完了したら、選んだタグを友だちに付与します
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">到達したらスタンプを付与</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={0}
+                      className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                      value={stepForm.onReachStampCount ?? ''}
+                      placeholder="0"
+                      onChange={(e) => setStepForm({ ...stepForm, onReachStampCount: e.target.value ? Math.max(0, Number(e.target.value)) : null })}
+                    />
+                    <span className="text-sm text-gray-700">個</span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    このステップが配信完了したら、指定した数のスタンプを友だちのスタンプカードに付与します（倍率ルールは適用されません）
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">到達したらクーポンを付与</label>
+                  <select
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
+                    value={stepForm.onReachCouponTemplateId ?? ''}
+                    onChange={(e) => setStepForm({ ...stepForm, onReachCouponTemplateId: e.target.value || null })}
+                  >
+                    <option value="">-- なし --</option>
+                    {couponTemplates.map((t) => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    このステップが配信完了したら、選んだクーポンを友だちに発行します
                   </p>
                 </div>
               </div>
