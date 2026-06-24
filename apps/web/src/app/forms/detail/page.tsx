@@ -40,13 +40,22 @@ export default function FormDetailPage() {
   const [error, setError] = useState('')
   const [creatingTemplate, setCreatingTemplate] = useState(false)
   const [templateMessage, setTemplateMessage] = useState('')
+  const [guideTemplateName, setGuideTemplateName] = useState<string | null>(null)
 
   useEffect(() => {
     if (!id) return
     setLoading(true)
     Promise.all([api.forms.get(id), api.tags.list(), api.scenarios.list()]).then(([formRes, tagsRes, scenariosRes]) => {
-      if (formRes.success) setForm(formRes.data)
-      else setError(formRes.error)
+      if (formRes.success) {
+        setForm(formRes.data)
+        if (formRes.data.guideTemplateId) {
+          api.templates.get(formRes.data.guideTemplateId).then((tplRes) => {
+            if (tplRes.success) setGuideTemplateName(tplRes.data.name)
+          })
+        }
+      } else {
+        setError(formRes.error)
+      }
       if (tagsRes.success) setTags(tagsRes.data)
       if (scenariosRes.success) setScenarios(scenariosRes.data)
       setLoading(false)
@@ -133,6 +142,8 @@ export default function FormDetailPage() {
         onSubmitScenarioId: form.onSubmitScenarioId,
         saveToMetadata: form.saveToMetadata,
         isActive: form.isActive,
+        resultTitle: form.resultTitle,
+        resultFooterText: form.resultFooterText,
       })
       if (res.success) {
         setForm(res.data)
@@ -178,6 +189,9 @@ export default function FormDetailPage() {
         messageContent: JSON.stringify(flex),
       })
       if (res.success) {
+        const updateRes = await api.forms.update(form.id, { guideTemplateId: res.data.id })
+        if (updateRes.success) setForm(updateRes.data)
+        setGuideTemplateName(res.data.name)
         setTemplateMessage(`テンプレート「${res.data.name}」を作成しました。シナリオのステップで「テンプレート」モードからこのテンプレートを選ぶと配信できます。`)
       } else {
         setError(res.error)
@@ -268,6 +282,29 @@ export default function FormDetailPage() {
           </Field>
         </Section>
 
+        <Section title="送信後に届く結果メッセージ">
+          <p className="text-xs text-gray-400">
+            「送信後に登録するシナリオ」やトラッキングリンクの誘導文言が設定されていない場合に、回答内容をまとめて送る既定のメッセージのタイトルとフッター文言です。
+          </p>
+          <Field label="タイトル（未入力なら「アンケート名の結果」）">
+            <input
+              value={form.resultTitle ?? ''}
+              onChange={(e) => setForm((f) => (f ? { ...f, resultTitle: e.target.value || null } : f))}
+              placeholder={`${form.name}の結果`}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            />
+          </Field>
+          <Field label="フッター文言（未入力なら既定の文言、空白のまま保存すると非表示）">
+            <textarea
+              value={form.resultFooterText ?? ''}
+              onChange={(e) => setForm((f) => (f ? { ...f, resultFooterText: e.target.value } : f))}
+              placeholder="他社サービスでは、フォームの回答内容に合わせたリアルタイム返信はできません。LINE Harnessだからこそ可能な体験です。"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              rows={2}
+            />
+          </Field>
+        </Section>
+
         <Section title="お客様向けURL / シナリオへの配布">
           {liffUrl ? (
             <>
@@ -280,8 +317,17 @@ export default function FormDetailPage() {
                 disabled={creatingTemplate}
                 className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
               >
-                {creatingTemplate ? '作成中...' : 'このアンケートに誘導するテンプレートを自動作成'}
+                {creatingTemplate ? '作成中...' : form.guideTemplateId ? 'テンプレートを再作成する' : 'このアンケートに誘導するテンプレートを自動作成'}
               </button>
+              {form.guideTemplateId && !templateMessage && (
+                <p className="text-xs text-gray-500 mt-1">
+                  ✓ 既にこのアンケートのテンプレート（
+                  <Link href={`/templates`} className="text-blue-600 hover:underline">
+                    {guideTemplateName ?? 'テンプレート'}
+                  </Link>
+                  ）は作成済みです。もう一度押すと新しいテンプレートを追加で作成します。
+                </p>
+              )}
               {templateMessage && <p className="text-xs text-emerald-700 mt-1">{templateMessage}</p>}
             </>
           ) : (

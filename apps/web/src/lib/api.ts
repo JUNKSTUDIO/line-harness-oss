@@ -290,6 +290,9 @@ export interface FormDetail extends FormSummary {
   onSubmitWebhookHeaders: string | null
   onSubmitWebhookFailMessage: string | null
   saveToMetadata: boolean
+  guideTemplateId: string | null
+  resultTitle: string | null
+  resultFooterText: string | null
 }
 
 export interface FormInput {
@@ -298,6 +301,9 @@ export interface FormInput {
   fields?: FormFieldDef[]
   onSubmitTagId?: string | null
   onSubmitScenarioId?: string | null
+  guideTemplateId?: string | null
+  resultTitle?: string | null
+  resultFooterText?: string | null
   saveToMetadata?: boolean
 }
 

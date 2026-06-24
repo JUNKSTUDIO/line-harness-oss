@@ -41,6 +41,9 @@ function serializeForm(
     onSubmitWebhookFailMessage: row.on_submit_webhook_fail_message,
     saveToMetadata: Boolean(row.save_to_metadata),
     isActive: Boolean(row.is_active),
+    guideTemplateId: row.guide_template_id,
+    resultTitle: row.result_title,
+    resultFooterText: row.result_footer_text,
     submitCount: row.submit_count,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -109,6 +112,8 @@ forms.post('/api/forms', async (c) => {
       onSubmitWebhookHeaders?: string | null;
       onSubmitWebhookFailMessage?: string | null;
       saveToMetadata?: boolean;
+      resultTitle?: string | null;
+      resultFooterText?: string | null;
     }>();
 
     if (!body.name) {
@@ -127,6 +132,8 @@ forms.post('/api/forms', async (c) => {
       onSubmitWebhookHeaders: body.onSubmitWebhookHeaders ?? null,
       onSubmitWebhookFailMessage: body.onSubmitWebhookFailMessage ?? null,
       saveToMetadata: body.saveToMetadata,
+      resultTitle: body.resultTitle ?? null,
+      resultFooterText: body.resultFooterText ?? null,
     });
 
     return c.json({ success: true, data: serializeForm(form) }, 201);
@@ -153,6 +160,9 @@ forms.put('/api/forms/:id', async (c) => {
       onSubmitWebhookFailMessage?: string | null;
       saveToMetadata?: boolean;
       isActive?: boolean;
+      guideTemplateId?: string | null;
+      resultTitle?: string | null;
+      resultFooterText?: string | null;
     }>();
 
     // Only include fields that were explicitly sent (avoid undefined → null conversion)
@@ -169,6 +179,9 @@ forms.put('/api/forms/:id', async (c) => {
     if (body.onSubmitWebhookFailMessage !== undefined) updates.onSubmitWebhookFailMessage = body.onSubmitWebhookFailMessage;
     if (body.saveToMetadata !== undefined) updates.saveToMetadata = body.saveToMetadata;
     if (body.isActive !== undefined) updates.isActive = body.isActive;
+    if (body.guideTemplateId !== undefined) updates.guideTemplateId = body.guideTemplateId;
+    if (body.resultTitle !== undefined) updates.resultTitle = body.resultTitle;
+    if (body.resultFooterText !== undefined) updates.resultFooterText = body.resultFooterText;
 
     const updated = await updateForm(c.env.DB, id, updates as any);
 
@@ -553,12 +566,19 @@ forms.post('/api/forms/:id/submit', async (c) => {
             };
           });
 
+          // タイトル・フッターはアンケートごとにカスタマイズ可能。未設定ならデフォルトにフォールバックし、
+          // フッターは空文字を明示的に設定していれば非表示にする。
+          const resultTitle = form.result_title || `${form.name}の結果`;
+          const resultFooterText = form.result_footer_text === null || form.result_footer_text === undefined
+            ? '他社サービスでは、フォームの回答内容に合わせたリアルタイム返信はできません。LINE Harnessだからこそ可能な体験です。'
+            : form.result_footer_text;
+
           const resultFlex = {
             type: 'bubble', size: 'giga',
             header: {
               type: 'box', layout: 'vertical',
               contents: [
-                { type: 'text', text: '診断結果', size: 'lg', weight: 'bold', color: '#1e293b' },
+                { type: 'text', text: resultTitle, size: 'lg', weight: 'bold', color: '#1e293b' },
                 { type: 'text', text: `${friend.display_name || ''}さんの回答`, size: 'xs', color: '#64748b', margin: 'sm' },
               ],
               paddingAll: '20px', backgroundColor: '#f0fdf4',
@@ -567,8 +587,12 @@ forms.post('/api/forms/:id/submit', async (c) => {
               type: 'box', layout: 'vertical',
               contents: [
                 ...answerRows,
-                { type: 'separator', margin: 'lg' },
-                { type: 'text', text: '他社サービスでは、フォームの回答内容に合わせたリアルタイム返信はできません。LINE Harnessだからこそ可能な体験です。', size: 'xs', color: '#06C755', weight: 'bold', wrap: true, margin: 'lg' },
+                ...(resultFooterText
+                  ? [
+                      { type: 'separator', margin: 'lg' },
+                      { type: 'text', text: resultFooterText, size: 'xs', color: '#06C755', weight: 'bold', wrap: true, margin: 'lg' },
+                    ]
+                  : []),
               ],
               paddingAll: '20px',
             },

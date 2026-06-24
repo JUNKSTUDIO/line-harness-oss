@@ -18,6 +18,12 @@ export interface Form {
   save_to_metadata: number;
   is_active: number;
   submit_count: number;
+  /** 「このアンケートに誘導するテンプレートを自動作成」で作ったテンプレートのID。重複作成防止に使う。 */
+  guide_template_id: string | null;
+  /** 送信後の既定の結果メッセージのタイトル。NULLなら `${name}の結果` にフォールバック。 */
+  result_title: string | null;
+  /** 送信後の既定の結果メッセージの最下部の文言。NULLなら既定の宣伝文、空文字なら非表示。 */
+  result_footer_text: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -116,6 +122,8 @@ export interface CreateFormInput {
   onSubmitWebhookHeaders?: string | null;
   onSubmitWebhookFailMessage?: string | null;
   saveToMetadata?: boolean;
+  resultTitle?: string | null;
+  resultFooterText?: string | null;
 }
 
 export async function createForm(db: D1Database, input: CreateFormInput): Promise<Form> {
@@ -128,8 +136,8 @@ export async function createForm(db: D1Database, input: CreateFormInput): Promis
          (id, name, description, fields, on_submit_tag_id, on_submit_scenario_id,
           on_submit_message_type, on_submit_message_content,
           on_submit_webhook_url, on_submit_webhook_headers, on_submit_webhook_fail_message,
-          save_to_metadata, is_active, submit_count, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?)`,
+          save_to_metadata, result_title, result_footer_text, is_active, submit_count, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?)`,
     )
     .bind(
       id,
@@ -144,6 +152,8 @@ export async function createForm(db: D1Database, input: CreateFormInput): Promis
       input.onSubmitWebhookHeaders ?? null,
       input.onSubmitWebhookFailMessage ?? null,
       input.saveToMetadata !== false ? 1 : 0,
+      input.resultTitle ?? null,
+      input.resultFooterText ?? null,
       now,
       now,
     )
@@ -165,6 +175,9 @@ export interface UpdateFormInput {
   onSubmitWebhookFailMessage?: string | null;
   saveToMetadata?: boolean;
   isActive?: boolean;
+  guideTemplateId?: string | null;
+  resultTitle?: string | null;
+  resultFooterText?: string | null;
 }
 
 export async function updateForm(
@@ -192,6 +205,9 @@ export async function updateForm(
            on_submit_webhook_fail_message = ?,
            save_to_metadata = ?,
            is_active = ?,
+           guide_template_id = ?,
+           result_title = ?,
+           result_footer_text = ?,
            updated_at = ?
        WHERE id = ?`,
     )
@@ -222,6 +238,9 @@ export async function updateForm(
         ? (input.saveToMetadata !== false ? 1 : 0)
         : existing.save_to_metadata,
       'isActive' in input ? (input.isActive ? 1 : 0) : existing.is_active,
+      'guideTemplateId' in input ? (input.guideTemplateId ?? null) : existing.guide_template_id,
+      'resultTitle' in input ? (input.resultTitle ?? null) : existing.result_title,
+      'resultFooterText' in input ? (input.resultFooterText ?? null) : existing.result_footer_text,
       now,
       id,
     )
