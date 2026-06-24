@@ -778,7 +778,7 @@ CREATE TABLE scenario_steps (
   delivery_time   TEXT,
   template_id     TEXT REFERENCES templates(id) ON DELETE SET NULL,
   on_reach_tag_id TEXT REFERENCES tags(id) ON DELETE SET NULL,
-  created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')), condition_type TEXT, condition_value TEXT, next_step_on_false INTEGER, on_reach_stamp_count INTEGER, on_reach_coupon_template_id TEXT REFERENCES coupon_templates (id) ON DELETE SET NULL, pin_delivery_time TEXT, early_jitter_enabled INTEGER NOT NULL DEFAULT 0,
+  created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')), condition_type TEXT, condition_value TEXT, next_step_on_false INTEGER, on_reach_stamp_count INTEGER, on_reach_coupon_template_id TEXT REFERENCES coupon_templates (id) ON DELETE SET NULL, pin_delivery_time TEXT, early_jitter_enabled INTEGER NOT NULL DEFAULT 0, on_reach_tag_action TEXT NOT NULL DEFAULT 'add' CHECK (on_reach_tag_action IN ('add', 'remove')), on_reach_move_scenario_id TEXT REFERENCES scenarios (id) ON DELETE SET NULL, on_reach_move_release_current INTEGER NOT NULL DEFAULT 0, on_reach_rich_menu_group_id TEXT REFERENCES rich_menu_groups (id) ON DELETE SET NULL,
   UNIQUE (scenario_id, step_order)
 );
 

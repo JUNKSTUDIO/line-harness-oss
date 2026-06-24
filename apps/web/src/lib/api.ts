@@ -413,8 +413,12 @@ export const api = {
         deliveryTime?: string
         templateId?: string | null
         onReachTagId?: string | null
+        onReachTagAction?: 'add' | 'remove'
         onReachStampCount?: number | null
         onReachCouponTemplateId?: string | null
+        onReachMoveScenarioId?: string | null
+        onReachMoveReleaseCurrent?: boolean
+        onReachRichMenuGroupId?: string | null
         pinDeliveryTime?: string | null
         earlyJitterEnabled?: boolean
       },
@@ -437,8 +441,12 @@ export const api = {
         deliveryTime?: string
         templateId?: string | null
         onReachTagId?: string | null
+        onReachTagAction?: 'add' | 'remove'
         onReachStampCount?: number | null
         onReachCouponTemplateId?: string | null
+        onReachMoveScenarioId?: string | null
+        onReachMoveReleaseCurrent?: boolean
+        onReachRichMenuGroupId?: string | null
         pinDeliveryTime?: string | null
         earlyJitterEnabled?: boolean
       },

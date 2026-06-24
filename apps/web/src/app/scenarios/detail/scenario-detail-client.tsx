@@ -107,8 +107,12 @@ interface StepFormState {
   schedule: ScheduleValue
   bubbles: BubbleFormState[]
   onReachTagId: string | null
+  onReachTagAction: 'add' | 'remove'
   onReachStampCount: number | null
   onReachCouponTemplateId: string | null
+  onReachMoveScenarioId: string | null
+  onReachMoveReleaseCurrent: boolean
+  onReachRichMenuGroupId: string | null
 }
 
 function emptyStepForm(stepOrder: number): StepFormState {
@@ -117,8 +121,12 @@ function emptyStepForm(stepOrder: number): StepFormState {
     schedule: { ...emptySchedule },
     bubbles: [emptyBubble()],
     onReachTagId: null,
+    onReachTagAction: 'add',
     onReachStampCount: null,
     onReachCouponTemplateId: null,
+    onReachMoveScenarioId: null,
+    onReachMoveReleaseCurrent: false,
+    onReachRichMenuGroupId: null,
   }
 }
 
@@ -319,6 +327,7 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
   const [templates, setTemplates] = useState<TemplateOpt[]>([])
   const [tags, setTags] = useState<TagOpt[]>([])
   const [couponTemplates, setCouponTemplates] = useState<Array<{ id: string; name: string }>>([])
+  const [richMenuGroups, setRichMenuGroups] = useState<Array<{ id: string; name: string }>>([])
   const [metadataFields, setMetadataFields] = useState<Array<{ key: string; label: string }>>([])
   const { selectedAccount } = useAccount()
 
@@ -391,6 +400,9 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
     if (!selectedAccount) return
     api.couponTemplates.list(selectedAccount.id).then((res) => {
       if (res.success) setCouponTemplates(res.data.map((t) => ({ id: t.id, name: t.name })))
+    }).catch(() => {})
+    api.richMenuGroups.list(selectedAccount.id).then((res) => {
+      if (res.success) setRichMenuGroups(res.data.map((g) => ({ id: g.id, name: g.name })))
     }).catch(() => {})
   }, [selectedAccount])
 
@@ -475,8 +487,12 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
         inputMode: m.templateId ? 'template' : 'direct',
       })),
       onReachTagId: step.onReachTagId ?? null,
+      onReachTagAction: step.onReachTagAction ?? 'add',
       onReachStampCount: step.onReachStampCount ?? null,
       onReachCouponTemplateId: step.onReachCouponTemplateId ?? null,
+      onReachMoveScenarioId: step.onReachMoveScenarioId ?? null,
+      onReachMoveReleaseCurrent: step.onReachMoveReleaseCurrent ?? false,
+      onReachRichMenuGroupId: step.onReachRichMenuGroupId ?? null,
     })
     setSelectedStepId(step.id)
     setShowStepForm(true)
@@ -518,6 +534,14 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
         return
       }
     }
+    if (stepForm.onReachMoveScenarioId === '') {
+      setStepError('移動先のシナリオを選択してください')
+      return
+    }
+    if (stepForm.onReachRichMenuGroupId === '') {
+      setStepError('切り替え先のリッチメニューを選択してください')
+      return
+    }
     setStepSaving(true)
     setStepError('')
     try {
@@ -533,8 +557,12 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
         ...schedulePayload,
         messages,
         onReachTagId: stepForm.onReachTagId,
+        onReachTagAction: stepForm.onReachTagAction,
         onReachStampCount: stepForm.onReachStampCount,
         onReachCouponTemplateId: stepForm.onReachCouponTemplateId,
+        onReachMoveScenarioId: stepForm.onReachMoveScenarioId,
+        onReachMoveReleaseCurrent: stepForm.onReachMoveReleaseCurrent,
+        onReachRichMenuGroupId: stepForm.onReachRichMenuGroupId,
       }
       let savedId = selectedStepId
       if (selectedStepId) {
@@ -953,19 +981,29 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
               <div className="pt-3 border-t border-gray-200 space-y-2">
                 <h4 className="text-xs font-semibold text-gray-700">到達時のアクション</h4>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">到達したらタグ付与</label>
-                  <select
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
-                    value={stepForm.onReachTagId ?? ''}
-                    onChange={(e) => setStepForm({ ...stepForm, onReachTagId: e.target.value || null })}
-                  >
-                    <option value="">-- なし --</option>
-                    {tags.map((t) => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
-                    ))}
-                  </select>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">到達したら属性タグを付ける／外す</label>
+                  <div className="flex items-center gap-2">
+                    <select
+                      className="w-24 border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white shrink-0"
+                      value={stepForm.onReachTagAction}
+                      onChange={(e) => setStepForm({ ...stepForm, onReachTagAction: e.target.value as 'add' | 'remove' })}
+                    >
+                      <option value="add">付ける</option>
+                      <option value="remove">外す</option>
+                    </select>
+                    <select
+                      className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
+                      value={stepForm.onReachTagId ?? ''}
+                      onChange={(e) => setStepForm({ ...stepForm, onReachTagId: e.target.value || null })}
+                    >
+                      <option value="">-- なし --</option>
+                      {tags.map((t) => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))}
+                    </select>
+                  </div>
                   <p className="text-xs text-gray-400 mt-0.5">
-                    このステップが配信完了したら、選んだタグを友だちに付与します
+                    このステップが配信完了したら、選んだタグを友だちに付ける/外します
                   </p>
                 </div>
                 <div>
@@ -1000,6 +1038,65 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
                   <p className="text-xs text-gray-400 mt-0.5">
                     このステップが配信完了したら、選んだクーポンを友だちに発行します
                   </p>
+                </div>
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={stepForm.onReachMoveScenarioId !== null}
+                      onChange={(e) => setStepForm({ ...stepForm, onReachMoveScenarioId: e.target.checked ? '' : null })}
+                    />
+                    送信後、シナリオ移動する
+                  </label>
+                  {stepForm.onReachMoveScenarioId !== null && (
+                    <div className="mt-1.5 ml-6 space-y-1.5">
+                      <select
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
+                        value={stepForm.onReachMoveScenarioId}
+                        onChange={(e) => setStepForm({ ...stepForm, onReachMoveScenarioId: e.target.value })}
+                      >
+                        <option value="">-- 選択してください --</option>
+                        {scenarioList.map((s) => (
+                          <option key={s.id} value={s.id}>{s.name}</option>
+                        ))}
+                      </select>
+                      <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={stepForm.onReachMoveReleaseCurrent}
+                          onChange={(e) => setStepForm({ ...stepForm, onReachMoveReleaseCurrent: e.target.checked })}
+                        />
+                        現在のシナリオを解除する
+                      </label>
+                      <p className="text-xs text-gray-400">
+                        {stepForm.onReachMoveReleaseCurrent
+                          ? '現在のシナリオ登録を解除してから、移動先シナリオに登録します。'
+                          : '現在のシナリオは継続したまま、移動先シナリオにも追加で登録します（両方が同時に進行します）。'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={stepForm.onReachRichMenuGroupId !== null}
+                      onChange={(e) => setStepForm({ ...stepForm, onReachRichMenuGroupId: e.target.checked ? '' : null })}
+                    />
+                    送信後、リッチメニューを切り替える
+                  </label>
+                  {stepForm.onReachRichMenuGroupId !== null && (
+                    <select
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white mt-1.5 ml-6"
+                      value={stepForm.onReachRichMenuGroupId}
+                      onChange={(e) => setStepForm({ ...stepForm, onReachRichMenuGroupId: e.target.value })}
+                    >
+                      <option value="">-- 選択してください --</option>
+                      {richMenuGroups.map((g) => (
+                        <option key={g.id} value={g.id}>{g.name}</option>
+                      ))}
+                    </select>
+                  )}
                 </div>
               </div>
 

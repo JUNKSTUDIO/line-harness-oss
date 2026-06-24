@@ -176,10 +176,18 @@ export interface ScenarioStep {
   templateId?: string | null;
   /** このステップ到達時に付与するタグ ID */
   onReachTagId?: string | null;
+  /** 'add'=付ける (既定) / 'remove'=外す。onReachTagIdと組み合わせて使う */
+  onReachTagAction?: 'add' | 'remove';
   /** このステップ到達時に付与するスタンプ数 (倍率ルール等は無視してそのまま付与) */
   onReachStampCount?: number | null;
   /** このステップ到達時に発行するクーポンのテンプレートID */
   onReachCouponTemplateId?: string | null;
+  /** このステップ到達時に登録する移動先シナリオID */
+  onReachMoveScenarioId?: string | null;
+  /** trueなら移動前に現在のシナリオ登録を解除する。falseなら現在のシナリオも継続したまま追加登録する */
+  onReachMoveReleaseCurrent?: boolean;
+  /** このステップ到達時に切り替えるリッチメニュー (グループ) ID */
+  onReachRichMenuGroupId?: string | null;
   /** relative mode限定: セットされていれば前ステップ配信時刻からNカレンダー日後のこの時刻 ("HH:MM") に配信する */
   pinDeliveryTime?: string | null;
   /** trueなら配信を常に6〜14分早める (予約配信と分かりづらくする)。falseなら既存の±5分対称ジッター */

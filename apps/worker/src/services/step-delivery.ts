@@ -4,6 +4,7 @@ import {
   getScenarioSteps,
   advanceFriendScenario,
   completeFriendScenario,
+  enrollFriendInScenario,
   claimFriendScenarioForDelivery,
   getFriendById,
   jstNow,
@@ -286,13 +287,55 @@ async function processSingleDelivery(
     await completeFriendScenario(db, fs.id);
   }
 
-  // 到達タグ付与 (advance / complete の後 = 再送が起きてもタグ付与は影響しない順序)
+  // 到達タグ付与/解除 (advance / complete の後 = 再送が起きてもタグ操作は影響しない順序)
   // 失敗してもログに残すだけで配信フローは止めない。
   if (currentStep.on_reach_tag_id) {
     try {
-      await addTagToFriend(db, friend.id, currentStep.on_reach_tag_id);
+      if (currentStep.on_reach_tag_action === 'remove') {
+        const { removeTagFromFriend } = await import('@line-crm/db');
+        await removeTagFromFriend(db, friend.id, currentStep.on_reach_tag_id);
+      } else {
+        await addTagToFriend(db, friend.id, currentStep.on_reach_tag_id);
+      }
     } catch (err) {
-      console.error(`[scenario] tag attach failed step=${currentStep.id}:`, err);
+      console.error(`[scenario] tag ${currentStep.on_reach_tag_action} failed step=${currentStep.id}:`, err);
+    }
+  }
+
+  // 到達時のシナリオ移動。on_reach_move_release_current が立っていれば、移動先への登録より
+  // 先に現在のシナリオ登録を解除する (友だちが既に移動先に在籍していても、解除済み = completed
+  // 扱いの登録は friend_scenarios の部分UNIQUEに引っかからないため再登録できる)。
+  if (currentStep.on_reach_move_scenario_id) {
+    try {
+      if (currentStep.on_reach_move_release_current) {
+        await completeFriendScenario(db, fs.id);
+      }
+      await enrollFriendInScenario(db, friend.id, currentStep.on_reach_move_scenario_id);
+    } catch (err) {
+      console.error(`[scenario] move to scenario failed step=${currentStep.id}:`, err);
+    }
+  }
+
+  // 到達時のリッチメニュー切替。グループの default_page_id → line_richmenu_id を解決する。
+  if (currentStep.on_reach_rich_menu_group_id) {
+    try {
+      const groupRow = await db
+        .prepare(`SELECT default_page_id FROM rich_menu_groups WHERE id = ?`)
+        .bind(currentStep.on_reach_rich_menu_group_id)
+        .first<{ default_page_id: string | null }>();
+      const pageRow = groupRow?.default_page_id
+        ? await db
+            .prepare(`SELECT line_richmenu_id FROM rich_menu_pages WHERE id = ?`)
+            .bind(groupRow.default_page_id)
+            .first<{ line_richmenu_id: string | null }>()
+        : null;
+      if (pageRow?.line_richmenu_id) {
+        await deliveryClient.linkRichMenuToUser(friend.line_user_id, pageRow.line_richmenu_id);
+      } else {
+        console.error(`[scenario] rich menu switch skipped (no line_richmenu_id) step=${currentStep.id}`);
+      }
+    } catch (err) {
+      console.error(`[scenario] rich menu switch failed step=${currentStep.id}:`, err);
     }
   }
 

@@ -90,8 +90,12 @@ function serializeStep(row: DbScenarioStep, messages?: DbScenarioStepMessage[]) 
     nextStepOnFalse: row.next_step_on_false ?? null,
     templateId: row.template_id ?? null,
     onReachTagId: row.on_reach_tag_id ?? null,
+    onReachTagAction: row.on_reach_tag_action ?? 'add',
     onReachStampCount: row.on_reach_stamp_count ?? null,
     onReachCouponTemplateId: row.on_reach_coupon_template_id ?? null,
+    onReachMoveScenarioId: row.on_reach_move_scenario_id ?? null,
+    onReachMoveReleaseCurrent: Boolean(row.on_reach_move_release_current),
+    onReachRichMenuGroupId: row.on_reach_rich_menu_group_id ?? null,
     pinDeliveryTime: row.pin_delivery_time ?? null,
     earlyJitterEnabled: Boolean(row.early_jitter_enabled),
     createdAt: row.created_at,
@@ -378,8 +382,12 @@ scenarios.post('/api/scenarios/:id/steps', async (c) => {
       nextStepOnFalse?: number | null;
       templateId?: string | null;
       onReachTagId?: string | null;
+      onReachTagAction?: 'add' | 'remove';
       onReachStampCount?: number | null;
       onReachCouponTemplateId?: string | null;
+      onReachMoveScenarioId?: string | null;
+      onReachMoveReleaseCurrent?: boolean;
+      onReachRichMenuGroupId?: string | null;
       pinDeliveryTime?: string | null;
       earlyJitterEnabled?: boolean;
     }>();
@@ -432,6 +440,21 @@ scenarios.post('/api/scenarios/:id/steps', async (c) => {
         .first<{ id: string }>();
       if (!tpl) return c.json({ success: false, error: 'onReachCouponTemplateId not found' }, 400);
     }
+    if (body.onReachMoveScenarioId != null) {
+      const target = await c.env.DB
+        .prepare(`SELECT id FROM scenarios WHERE id = ?`)
+        .bind(body.onReachMoveScenarioId)
+        .first<{ id: string }>();
+      if (!target) return c.json({ success: false, error: 'onReachMoveScenarioId not found' }, 400);
+    }
+    if (body.onReachRichMenuGroupId != null) {
+      const group = await c.env.DB
+        .prepare(`SELECT id, default_page_id FROM rich_menu_groups WHERE id = ?`)
+        .bind(body.onReachRichMenuGroupId)
+        .first<{ id: string; default_page_id: string | null }>();
+      if (!group) return c.json({ success: false, error: 'onReachRichMenuGroupId not found' }, 400);
+      if (!group.default_page_id) return c.json({ success: false, error: 'onReachRichMenuGroupId has no default page' }, 400);
+    }
     if (body.pinDeliveryTime != null && !HHMM_RE.test(body.pinDeliveryTime)) {
       return c.json({ success: false, error: 'pinDeliveryTime must be "HH:MM"' }, 400);
     }
@@ -450,8 +473,12 @@ scenarios.post('/api/scenarios/:id/steps', async (c) => {
       deliveryTime: body.deliveryTime ?? null,
       templateId: resolvedMessages[0].templateId,
       onReachTagId: body.onReachTagId ?? null,
+      onReachTagAction: body.onReachTagAction ?? 'add',
       onReachStampCount: body.onReachStampCount ?? null,
       onReachCouponTemplateId: body.onReachCouponTemplateId ?? null,
+      onReachMoveScenarioId: body.onReachMoveScenarioId ?? null,
+      onReachMoveReleaseCurrent: body.onReachMoveReleaseCurrent ?? false,
+      onReachRichMenuGroupId: body.onReachRichMenuGroupId ?? null,
       pinDeliveryTime: body.pinDeliveryTime ?? null,
       earlyJitterEnabled: body.earlyJitterEnabled ?? false,
     });
@@ -484,8 +511,12 @@ scenarios.put('/api/scenarios/:id/steps/:stepId', async (c) => {
       nextStepOnFalse?: number | null;
       templateId?: string | null;
       onReachTagId?: string | null;
+      onReachTagAction?: 'add' | 'remove';
       onReachStampCount?: number | null;
       onReachCouponTemplateId?: string | null;
+      onReachMoveScenarioId?: string | null;
+      onReachMoveReleaseCurrent?: boolean;
+      onReachRichMenuGroupId?: string | null;
       pinDeliveryTime?: string | null;
       earlyJitterEnabled?: boolean;
     }>();
@@ -531,6 +562,21 @@ scenarios.put('/api/scenarios/:id/steps/:stepId', async (c) => {
         .bind(body.onReachCouponTemplateId)
         .first<{ id: string }>();
       if (!tpl) return c.json({ success: false, error: 'onReachCouponTemplateId not found' }, 400);
+    }
+    if (body.onReachMoveScenarioId !== undefined && body.onReachMoveScenarioId !== null) {
+      const target = await c.env.DB
+        .prepare(`SELECT id FROM scenarios WHERE id = ?`)
+        .bind(body.onReachMoveScenarioId)
+        .first<{ id: string }>();
+      if (!target) return c.json({ success: false, error: 'onReachMoveScenarioId not found' }, 400);
+    }
+    if (body.onReachRichMenuGroupId !== undefined && body.onReachRichMenuGroupId !== null) {
+      const group = await c.env.DB
+        .prepare(`SELECT id, default_page_id FROM rich_menu_groups WHERE id = ?`)
+        .bind(body.onReachRichMenuGroupId)
+        .first<{ id: string; default_page_id: string | null }>();
+      if (!group) return c.json({ success: false, error: 'onReachRichMenuGroupId not found' }, 400);
+      if (!group.default_page_id) return c.json({ success: false, error: 'onReachRichMenuGroupId has no default page' }, 400);
     }
     if (body.pinDeliveryTime !== undefined && body.pinDeliveryTime !== null && !HHMM_RE.test(body.pinDeliveryTime)) {
       return c.json({ success: false, error: 'pinDeliveryTime must be "HH:MM"' }, 400);
@@ -621,8 +667,12 @@ scenarios.put('/api/scenarios/:id/steps/:stepId', async (c) => {
       delivery_time: body.deliveryTime,
       template_id: resolvedMessages ? resolvedMessages[0].templateId : undefined,
       on_reach_tag_id: body.onReachTagId,
+      on_reach_tag_action: body.onReachTagAction,
       on_reach_stamp_count: body.onReachStampCount,
       on_reach_coupon_template_id: body.onReachCouponTemplateId,
+      on_reach_move_scenario_id: body.onReachMoveScenarioId,
+      on_reach_move_release_current: body.onReachMoveReleaseCurrent !== undefined ? (body.onReachMoveReleaseCurrent ? 1 : 0) : undefined,
+      on_reach_rich_menu_group_id: body.onReachRichMenuGroupId,
       pin_delivery_time: body.pinDeliveryTime,
       early_jitter_enabled: body.earlyJitterEnabled !== undefined ? (body.earlyJitterEnabled ? 1 : 0) : undefined,
     });

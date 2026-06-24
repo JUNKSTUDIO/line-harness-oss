@@ -33,10 +33,18 @@ export interface ScenarioStep {
   delivery_time: string | null;
   template_id: string | null;
   on_reach_tag_id: string | null;
+  /** 'add'=付ける (既定) / 'remove'=外す。on_reach_tag_id と組み合わせて使う */
+  on_reach_tag_action: 'add' | 'remove';
   /** 到達時に付与するスタンプ数 (倍率ルール等は適用せずこの数値をそのまま付与する) */
   on_reach_stamp_count: number | null;
   /** 到達時に発行するクーポンのテンプレートID */
   on_reach_coupon_template_id: string | null;
+  /** 到達時に登録する移動先シナリオID */
+  on_reach_move_scenario_id: string | null;
+  /** trueなら移動前に現在のシナリオ登録を解除する。falseなら現在のシナリオも継続したまま追加登録する */
+  on_reach_move_release_current: number;
+  /** 到達時に切り替えるリッチメニュー (グループ) ID */
+  on_reach_rich_menu_group_id: string | null;
   /** relative モード限定: セットされていれば前ステップ配信時刻からNカレンダー日後のこの時刻 ("HH:MM") に配信する */
   pin_delivery_time: string | null;
   /** trueなら配信を常に6〜14分早める (予約配信と分かりづらくする)。falseなら既存の±5分対称ジッター */
@@ -215,8 +223,12 @@ export interface CreateScenarioStepInput {
   deliveryTime?: string | null;
   templateId?: string | null;
   onReachTagId?: string | null;
+  onReachTagAction?: 'add' | 'remove';
   onReachStampCount?: number | null;
   onReachCouponTemplateId?: string | null;
+  onReachMoveScenarioId?: string | null;
+  onReachMoveReleaseCurrent?: boolean;
+  onReachRichMenuGroupId?: string | null;
   pinDeliveryTime?: string | null;
   earlyJitterEnabled?: boolean;
 }
@@ -234,10 +246,11 @@ export async function createScenarioStep(
        (id, scenario_id, step_order, delay_minutes, message_type, message_content,
         condition_type, condition_value, next_step_on_false,
         offset_days, offset_minutes, delivery_time,
-        template_id, on_reach_tag_id, on_reach_stamp_count, on_reach_coupon_template_id,
+        template_id, on_reach_tag_id, on_reach_tag_action, on_reach_stamp_count, on_reach_coupon_template_id,
+        on_reach_move_scenario_id, on_reach_move_release_current, on_reach_rich_menu_group_id,
         pin_delivery_time, early_jitter_enabled,
         created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id,
@@ -254,8 +267,12 @@ export async function createScenarioStep(
       input.deliveryTime ?? null,
       input.templateId ?? null,
       input.onReachTagId ?? null,
+      input.onReachTagAction ?? 'add',
       input.onReachStampCount ?? null,
       input.onReachCouponTemplateId ?? null,
+      input.onReachMoveScenarioId ?? null,
+      input.onReachMoveReleaseCurrent ? 1 : 0,
+      input.onReachRichMenuGroupId ?? null,
       input.pinDeliveryTime ?? null,
       input.earlyJitterEnabled ? 1 : 0,
       now,
@@ -283,8 +300,12 @@ export type UpdateScenarioStepInput = Partial<
     | 'delivery_time'
     | 'template_id'
     | 'on_reach_tag_id'
+    | 'on_reach_tag_action'
     | 'on_reach_stamp_count'
     | 'on_reach_coupon_template_id'
+    | 'on_reach_move_scenario_id'
+    | 'on_reach_move_release_current'
+    | 'on_reach_rich_menu_group_id'
     | 'pin_delivery_time'
     | 'early_jitter_enabled'
   >
@@ -345,6 +366,22 @@ export async function updateScenarioStep(
   if (updates.on_reach_tag_id !== undefined) {
     fields.push('on_reach_tag_id = ?');
     values.push(updates.on_reach_tag_id);
+  }
+  if (updates.on_reach_tag_action !== undefined) {
+    fields.push('on_reach_tag_action = ?');
+    values.push(updates.on_reach_tag_action);
+  }
+  if (updates.on_reach_move_scenario_id !== undefined) {
+    fields.push('on_reach_move_scenario_id = ?');
+    values.push(updates.on_reach_move_scenario_id);
+  }
+  if (updates.on_reach_move_release_current !== undefined) {
+    fields.push('on_reach_move_release_current = ?');
+    values.push(updates.on_reach_move_release_current);
+  }
+  if (updates.on_reach_rich_menu_group_id !== undefined) {
+    fields.push('on_reach_rich_menu_group_id = ?');
+    values.push(updates.on_reach_rich_menu_group_id);
   }
   if (updates.on_reach_stamp_count !== undefined) {
     fields.push('on_reach_stamp_count = ?');
