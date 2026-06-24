@@ -11,6 +11,10 @@ import {
   enrollFriendInScenario,
   getFriendById,
   computeNextDeliveryAt,
+  getScenarioStepMessages,
+  getScenarioStepMessagesByStepIds,
+  replaceScenarioStepMessages,
+  MAX_SCENARIO_STEP_MESSAGES,
 } from '@line-crm/db';
 import { computeScenarioStats } from '../services/scenario-stats.js';
 import { resolveStepContent } from '@line-crm/db';
@@ -18,6 +22,7 @@ import type {
   Scenario as DbScenario,
   ScenarioWithStepCount as DbScenarioWithStepCount,
   ScenarioStep as DbScenarioStep,
+  ScenarioStepMessage as DbScenarioStepMessage,
   FriendScenario as DbFriendScenario,
   ScenarioTriggerType,
   MessageType,
@@ -46,8 +51,30 @@ function serializeScenario(row: DbScenario) {
   };
 }
 
+/** ステップ内の複数フキダシ。scenario_step_messages にまだ無い場合は legacy 列から1件合成する。 */
+function serializeStepMessages(row: DbScenarioStep, messages?: DbScenarioStepMessage[]) {
+  if (messages && messages.length > 0) {
+    return messages.map((m) => ({
+      id: m.id,
+      orderIndex: m.order_index,
+      messageType: m.message_type,
+      messageContent: m.message_content,
+      templateId: m.template_id ?? null,
+    }));
+  }
+  return [
+    {
+      id: null as string | null,
+      orderIndex: 0,
+      messageType: row.message_type,
+      messageContent: row.message_content,
+      templateId: row.template_id ?? null,
+    },
+  ];
+}
+
 /** Convert D1 snake_case ScenarioStep row to shared camelCase shape */
-function serializeStep(row: DbScenarioStep) {
+function serializeStep(row: DbScenarioStep, messages?: DbScenarioStepMessage[]) {
   return {
     id: row.id,
     scenarioId: row.scenario_id,
@@ -64,6 +91,7 @@ function serializeStep(row: DbScenarioStep) {
     templateId: row.template_id ?? null,
     onReachTagId: row.on_reach_tag_id ?? null,
     createdAt: row.created_at,
+    messages: serializeStepMessages(row, messages),
   };
 }
 
@@ -75,6 +103,48 @@ interface StepScheduleBody {
   offsetDays?: number;
   offsetMinutes?: number;
   deliveryTime?: string;
+}
+
+interface RawStepMessageInput {
+  messageType?: MessageType;
+  messageContent?: string;
+  templateId?: string | null;
+}
+
+interface ResolvedStepMessage {
+  messageType: MessageType;
+  messageContent: string;
+  templateId: string | null;
+}
+
+/**
+ * messages[] の各要素について templateId 指定があればテンプレ本文へスナップショットする
+ * (既存の単一メッセージ更新と同じ「stale な body 内容より templates テーブルの最新を優先」方針)。
+ * 見つからない templateId や、テンプレ指定なしで messageType/messageContent が無い要素があれば null を返す。
+ */
+async function resolveStepMessages(
+  db: D1Database,
+  rawMessages: RawStepMessageInput[],
+): Promise<ResolvedStepMessage[] | null> {
+  const resolved: ResolvedStepMessage[] = [];
+  for (const m of rawMessages) {
+    if (m.templateId) {
+      const tpl = await db
+        .prepare(`SELECT message_type, message_content FROM templates WHERE id = ?`)
+        .bind(m.templateId)
+        .first<{ message_type: string; message_content: string }>();
+      if (!tpl) return null;
+      resolved.push({
+        messageType: (tpl.message_type === 'carousel' ? 'flex' : tpl.message_type) as MessageType,
+        messageContent: tpl.message_content,
+        templateId: m.templateId,
+      });
+    } else {
+      if (!m.messageType || !m.messageContent) return null;
+      resolved.push({ messageType: m.messageType, messageContent: m.messageContent, templateId: null });
+    }
+  }
+  return resolved;
 }
 
 /** delivery_mode に応じてスケジュールフィールドを検証する。 */
@@ -174,11 +244,13 @@ scenarios.get('/api/scenarios/:id', async (c) => {
       return c.json({ success: false, error: 'Scenario not found' }, 404);
     }
 
+    const messagesByStep = await getScenarioStepMessagesByStepIds(c.env.DB, scenario.steps.map((s) => s.id));
+
     return c.json({
       success: true,
       data: {
         ...serializeScenario(scenario),
-        steps: scenario.steps.map(serializeStep),
+        steps: scenario.steps.map((s) => serializeStep(s, messagesByStep.get(s.id))),
       },
     });
   } catch (err) {
@@ -294,8 +366,9 @@ scenarios.post('/api/scenarios/:id/steps', async (c) => {
       offsetDays?: number;
       offsetMinutes?: number;
       deliveryTime?: string;
-      messageType: MessageType;
-      messageContent: string;
+      messageType?: MessageType;
+      messageContent?: string;
+      messages?: RawStepMessageInput[];
       conditionType?: string | null;
       conditionValue?: string | null;
       nextStepOnFalse?: number | null;
@@ -303,9 +376,17 @@ scenarios.post('/api/scenarios/:id/steps', async (c) => {
       onReachTagId?: string | null;
     }>();
 
-    if (body.stepOrder === undefined || !body.messageType || !body.messageContent) {
+    const rawMessages: RawStepMessageInput[] =
+      body.messages && body.messages.length > 0
+        ? body.messages
+        : [{ messageType: body.messageType, messageContent: body.messageContent, templateId: body.templateId ?? null }];
+
+    if (body.stepOrder === undefined || rawMessages.length === 0) {
+      return c.json({ success: false, error: 'stepOrder and at least 1 message are required' }, 400);
+    }
+    if (rawMessages.length > MAX_SCENARIO_STEP_MESSAGES) {
       return c.json(
-        { success: false, error: 'stepOrder, messageType, and messageContent are required' },
+        { success: false, error: `1ステップに送れるフキダシは最大${MAX_SCENARIO_STEP_MESSAGES}個までです (LINE仕様の上限)` },
         400,
       );
     }
@@ -321,14 +402,14 @@ scenarios.post('/api/scenarios/:id/steps', async (c) => {
     const v = validateStepSchedule(scenarioRow.delivery_mode, body);
     if (!v.ok) return c.json({ success: false, error: v.error }, 400);
 
-    // templateId / onReachTagId 参照整合性チェック
-    if (body.templateId != null) {
-      const tpl = await c.env.DB
-        .prepare(`SELECT id FROM templates WHERE id = ?`)
-        .bind(body.templateId)
-        .first<{ id: string }>();
-      if (!tpl) return c.json({ success: false, error: 'templateId not found' }, 400);
+    const resolvedMessages = await resolveStepMessages(c.env.DB, rawMessages);
+    if (!resolvedMessages) {
+      return c.json(
+        { success: false, error: '各フキダシには messageType+messageContent または有効な templateId が必要です' },
+        400,
+      );
     }
+
     if (body.onReachTagId != null) {
       const tag = await c.env.DB
         .prepare(`SELECT id FROM tags WHERE id = ?`)
@@ -341,19 +422,21 @@ scenarios.post('/api/scenarios/:id/steps', async (c) => {
       scenarioId,
       stepOrder: body.stepOrder,
       delayMinutes: body.delayMinutes ?? 0,
-      messageType: body.messageType,
-      messageContent: body.messageContent,
+      messageType: resolvedMessages[0].messageType,
+      messageContent: resolvedMessages[0].messageContent,
       conditionType: body.conditionType ?? null,
       conditionValue: body.conditionValue ?? null,
       nextStepOnFalse: body.nextStepOnFalse ?? null,
       offsetDays: body.offsetDays ?? null,
       offsetMinutes: body.offsetMinutes ?? null,
       deliveryTime: body.deliveryTime ?? null,
-      templateId: body.templateId ?? null,
+      templateId: resolvedMessages[0].templateId,
       onReachTagId: body.onReachTagId ?? null,
     });
 
-    return c.json({ success: true, data: serializeStep(step) }, 201);
+    const messages = await replaceScenarioStepMessages(c.env.DB, step.id, resolvedMessages);
+
+    return c.json({ success: true, data: serializeStep(step, messages) }, 201);
   } catch (err) {
     console.error('POST /api/scenarios/:id/steps error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);
@@ -373,6 +456,7 @@ scenarios.put('/api/scenarios/:id/steps/:stepId', async (c) => {
       deliveryTime?: string;
       messageType?: MessageType;
       messageContent?: string;
+      messages?: RawStepMessageInput[];
       conditionType?: string | null;
       conditionValue?: string | null;
       nextStepOnFalse?: number | null;
@@ -380,17 +464,34 @@ scenarios.put('/api/scenarios/:id/steps/:stepId', async (c) => {
       onReachTagId?: string | null;
     }>();
 
-    // templateId / onReachTagId 参照整合性チェック (null は解除を意図、bypass)
-    // templateId が指定された場合は内容も取得して snapshot 更新に使う。
-    let templateSnapshot: { message_type: string; message_content: string } | null = null;
-    if (body.templateId !== undefined && body.templateId !== null) {
-      const tpl = await c.env.DB
-        .prepare(`SELECT id, message_type, message_content FROM templates WHERE id = ?`)
-        .bind(body.templateId)
-        .first<{ id: string; message_type: string; message_content: string }>();
-      if (!tpl) return c.json({ success: false, error: 'templateId not found' }, 400);
-      templateSnapshot = { message_type: tpl.message_type, message_content: tpl.message_content };
+    // メッセージ関連フィールドが何も指定されていなければメッセージは不変 (例: stepOrder だけ更新)。
+    // messages[] が指定されていればそれを正とし、無ければ従来の単一メッセージ系フィールドから
+    // 1件分の配列を合成する (どちらの経路でも scenario_step_messages と legacy 列を同期させる)。
+    const rawMessages: RawStepMessageInput[] | undefined =
+      body.messages && body.messages.length > 0
+        ? body.messages
+        : body.messageType !== undefined || body.messageContent !== undefined || body.templateId !== undefined
+          ? [{ messageType: body.messageType, messageContent: body.messageContent, templateId: body.templateId }]
+          : undefined;
+
+    if (rawMessages && rawMessages.length > MAX_SCENARIO_STEP_MESSAGES) {
+      return c.json(
+        { success: false, error: `1ステップに送れるフキダシは最大${MAX_SCENARIO_STEP_MESSAGES}個までです (LINE仕様の上限)` },
+        400,
+      );
     }
+
+    let resolvedMessages: ResolvedStepMessage[] | null = null;
+    if (rawMessages) {
+      resolvedMessages = await resolveStepMessages(c.env.DB, rawMessages);
+      if (!resolvedMessages) {
+        return c.json(
+          { success: false, error: '各フキダシには messageType+messageContent または有効な templateId が必要です' },
+          400,
+        );
+      }
+    }
+
     if (body.onReachTagId !== undefined && body.onReachTagId !== null) {
       const tag = await c.env.DB
         .prepare(`SELECT id FROM tags WHERE id = ?`)
@@ -469,29 +570,20 @@ scenarios.put('/api/scenarios/:id/steps/:stepId', async (c) => {
       if (!v.ok) return c.json({ success: false, error: v.error }, 400);
     }
 
-    // templateId が指定された場合は snapshot (message_type/message_content) も
-    // 同時に更新する。templates テーブルから取った値を優先することで、stale な
-    // body 内容 (UI の templates state が古い等) が保存されるのを防ぐ。
-    // templateId が指定されていない場合は body の値をそのまま使う (直接入力モード)。
-    const effectiveMessageType = templateSnapshot
-      ? ((templateSnapshot.message_type === 'carousel' ? 'flex' : templateSnapshot.message_type) as MessageType)
-      : body.messageType;
-    const effectiveMessageContent = templateSnapshot
-      ? templateSnapshot.message_content
-      : body.messageContent;
-
+    // メッセージが指定されていれば、先頭フキダシの内容を legacy 列 (message_type/content/
+    // template_id) にも反映しておく (どちらの列を読むコードがあっても整合する)。
     const updated = await updateScenarioStep(c.env.DB, stepId, {
       step_order: body.stepOrder,
       delay_minutes: body.delayMinutes,
-      message_type: effectiveMessageType,
-      message_content: effectiveMessageContent,
+      message_type: resolvedMessages ? resolvedMessages[0].messageType : undefined,
+      message_content: resolvedMessages ? resolvedMessages[0].messageContent : undefined,
       condition_type: body.conditionType,
       condition_value: body.conditionValue,
       next_step_on_false: body.nextStepOnFalse,
       offset_days: body.offsetDays,
       offset_minutes: body.offsetMinutes,
       delivery_time: body.deliveryTime,
-      template_id: body.templateId,
+      template_id: resolvedMessages ? resolvedMessages[0].templateId : undefined,
       on_reach_tag_id: body.onReachTagId,
     });
 
@@ -499,7 +591,11 @@ scenarios.put('/api/scenarios/:id/steps/:stepId', async (c) => {
       return c.json({ success: false, error: 'Step not found' }, 404);
     }
 
-    return c.json({ success: true, data: serializeStep(updated) });
+    const messages = resolvedMessages
+      ? await replaceScenarioStepMessages(c.env.DB, stepId, resolvedMessages)
+      : await getScenarioStepMessages(c.env.DB, stepId);
+
+    return c.json({ success: true, data: serializeStep(updated, messages) });
   } catch (err) {
     console.error('PUT /api/scenarios/:id/steps/:stepId error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);

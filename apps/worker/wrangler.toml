@@ -20,7 +20,7 @@ binding = "IMAGES"
 bucket_name = "tsu-line-harness-images"
 
 [triggers]
-crons = ["*/5 * * * *", "0 */6 * * *"]
+crons = ["* * * * *", "0 */6 * * *"]
 
 [vars]
 WORKER_NAME = "tsu-line-harness"

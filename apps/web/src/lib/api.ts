@@ -404,8 +404,9 @@ export const api = {
       id: string,
       data: {
         stepOrder: number
-        messageType: ScenarioStep['messageType']
-        messageContent: string
+        messageType?: ScenarioStep['messageType']
+        messageContent?: string
+        messages?: Array<{ messageType?: ScenarioStep['messageType']; messageContent?: string; templateId?: string | null }>
         delayMinutes?: number
         offsetDays?: number
         offsetMinutes?: number
@@ -425,6 +426,7 @@ export const api = {
         stepOrder?: number
         messageType?: ScenarioStep['messageType']
         messageContent?: string
+        messages?: Array<{ messageType?: ScenarioStep['messageType']; messageContent?: string; templateId?: string | null }>
         delayMinutes?: number
         offsetDays?: number
         offsetMinutes?: number

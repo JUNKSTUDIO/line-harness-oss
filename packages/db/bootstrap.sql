@@ -755,6 +755,17 @@ CREATE TABLE rich_menu_pages (
   UNIQUE (group_id, order_index)
 );
 
+CREATE TABLE scenario_step_messages (
+  id                TEXT PRIMARY KEY,
+  scenario_step_id  TEXT NOT NULL REFERENCES scenario_steps (id) ON DELETE CASCADE,
+  order_index       INTEGER NOT NULL,
+  message_type      TEXT NOT NULL CHECK (message_type IN ('text', 'image', 'flex')),
+  message_content   TEXT NOT NULL,
+  template_id       TEXT REFERENCES templates (id) ON DELETE SET NULL,
+  created_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  UNIQUE (scenario_step_id, order_index)
+);
+
 CREATE TABLE scenario_steps (
   id              TEXT PRIMARY KEY,
   scenario_id     TEXT NOT NULL REFERENCES scenarios (id) ON DELETE CASCADE,
@@ -1131,6 +1142,8 @@ CREATE INDEX idx_rich_menu_areas_page     ON rich_menu_areas(page_id);
 CREATE INDEX idx_rich_menu_groups_account ON rich_menu_groups(account_id, status);
 
 CREATE INDEX idx_rich_menu_pages_group    ON rich_menu_pages(group_id, order_index);
+
+CREATE INDEX idx_scenario_step_messages_step ON scenario_step_messages (scenario_step_id);
 
 CREATE INDEX idx_scenario_steps_scenario_id ON scenario_steps (scenario_id);
 

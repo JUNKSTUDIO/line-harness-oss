@@ -1,9 +1,27 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 
 import Link from 'next/link'
 import type { Scenario, ScenarioStep, ScenarioTriggerType, MessageType, DeliveryMode } from '@line-crm/shared'
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { api } from '@/lib/api'
 import Header from '@/components/layout/header'
 import FlexPreviewComponent from '@/components/flex-preview'
@@ -16,6 +34,8 @@ import ScheduleInput, {
 import BulkPreviewModal from '@/components/scenarios/bulk-preview-modal'
 
 type ScenarioWithSteps = Scenario & { steps: ScenarioStep[] }
+
+const MAX_BUBBLES = 5
 
 const triggerOptions: { value: ScenarioTriggerType; label: string }[] = [
   { value: 'friend_add', label: '友だち追加時' },
@@ -69,25 +89,30 @@ function formatScheduleLabel(mode: DeliveryMode | undefined, step: ScenarioStep)
   return `購読開始から${step.offsetDays ?? 0}日後の ${step.deliveryTime ?? '00:00'}`
 }
 
-interface StepFormState {
-  stepOrder: number
-  schedule: ScheduleValue
+interface BubbleFormState {
   messageType: MessageType
   messageContent: string
   templateId: string | null
-  onReachTagId: string | null
   inputMode: 'direct' | 'template'
+}
+
+function emptyBubble(): BubbleFormState {
+  return { messageType: 'text', messageContent: '', templateId: null, inputMode: 'direct' }
+}
+
+interface StepFormState {
+  stepOrder: number
+  schedule: ScheduleValue
+  bubbles: BubbleFormState[]
+  onReachTagId: string | null
 }
 
 function emptyStepForm(stepOrder: number): StepFormState {
   return {
     stepOrder,
     schedule: { ...emptySchedule },
-    messageType: 'text',
-    messageContent: '',
-    templateId: null,
+    bubbles: [emptyBubble()],
     onReachTagId: null,
-    inputMode: 'direct',
   }
 }
 
@@ -112,8 +137,14 @@ interface ScenarioStats {
   steps: Array<{ stepOrder: number; reachedCount: number; reachRate: number }>
 }
 
+interface ScenarioListItem {
+  id: string
+  name: string
+  isActive: boolean
+}
+
 function FlexPreview({ content }: { content: string }) {
-  return <FlexPreviewComponent content={content} maxWidth={300} />
+  return <FlexPreviewComponent content={content} maxWidth={280} />
 }
 
 function ImagePreview({ content }: { content: string }) {
@@ -124,7 +155,7 @@ function ImagePreview({ content }: { content: string }) {
       <div>
         <span className="text-xs font-medium text-purple-600 bg-purple-50 px-2 py-0.5 rounded mb-2 inline-block">画像</span>
         {url ? (
-          <img src={url} alt="preview" className="max-w-[200px] rounded-lg border border-gray-200 mt-1" />
+          <img src={url} alt="preview" className="max-w-[180px] rounded-lg border border-gray-200 mt-1" />
         ) : (
           <p className="text-xs text-gray-400">プレビューなし</p>
         )}
@@ -135,19 +166,95 @@ function ImagePreview({ content }: { content: string }) {
   }
 }
 
+function SortableStepRow({
+  step,
+  selected,
+  scheduleLabel,
+  bubbleCount,
+  preview,
+  stat,
+  onSelect,
+  onDelete,
+}: {
+  step: ScenarioStep
+  selected: boolean
+  scheduleLabel: string
+  bubbleCount: number
+  preview: string
+  stat?: { reachedCount: number; reachRate: number }
+  onSelect: () => void
+  onDelete: () => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: step.id })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      onClick={onSelect}
+      className={`flex items-start gap-2 rounded-lg border p-2.5 cursor-pointer transition-colors ${
+        selected ? 'border-green-400 bg-green-50' : 'border-gray-200 hover:border-gray-300 bg-white'
+      }`}
+    >
+      <span
+        {...attributes}
+        {...listeners}
+        onClick={(e) => e.stopPropagation()}
+        className="text-gray-400 cursor-grab pt-0.5 select-none"
+        aria-label="ドラッグして並び替え"
+      >
+        ⋮⋮
+      </span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span
+            className="inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold text-white shrink-0"
+            style={{ backgroundColor: '#06C755' }}
+          >
+            {step.stepOrder}
+          </span>
+          <span className="text-xs text-gray-500">{scheduleLabel}</span>
+          {bubbleCount > 1 && (
+            <span className="text-[10px] text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded">フキダシ×{bubbleCount}</span>
+          )}
+        </div>
+        <p className="text-xs text-gray-700 truncate mt-1">{preview || '(空)'}</p>
+        {stat && (
+          <p className="text-[10px] text-purple-600 mt-0.5">
+            📊 {stat.reachedCount}人到達 ({Math.round(stat.reachRate * 100)}%)
+          </p>
+        )}
+      </div>
+      <button
+        onClick={(e) => { e.stopPropagation(); onDelete() }}
+        className="text-[10px] text-red-500 hover:text-red-700 shrink-0"
+      >
+        削除
+      </button>
+    </div>
+  )
+}
+
 export default function ScenarioDetailClient({ scenarioId }: { scenarioId: string }) {
   const id = scenarioId
+  const router = useRouter()
 
   const [scenario, setScenario] = useState<ScenarioWithSteps | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+
+  const [scenarioList, setScenarioList] = useState<ScenarioListItem[]>([])
 
   const [editing, setEditing] = useState(false)
   const [editForm, setEditForm] = useState({ name: '', description: '', triggerType: 'friend_add' as ScenarioTriggerType, isActive: true })
   const [saving, setSaving] = useState(false)
 
   const [showStepForm, setShowStepForm] = useState(false)
-  const [editingStepId, setEditingStepId] = useState<string | null>(null)
+  const [selectedStepId, setSelectedStepId] = useState<string | null>(null)
   const [stepForm, setStepForm] = useState<StepFormState>(() => emptyStepForm(1))
   const [stepSaving, setStepSaving] = useState(false)
   const [stepError, setStepError] = useState('')
@@ -186,6 +293,15 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
   useEffect(() => {
     loadScenario()
   }, [loadScenario])
+
+  // 左カラム: シナリオ一覧 (画面切替なしで他シナリオへ移動できるように)
+  useEffect(() => {
+    api.scenarios.list().then((res) => {
+      if (res.success) {
+        setScenarioList(res.data.map((s) => ({ id: s.id, name: s.name, isActive: s.isActive })))
+      }
+    }).catch(() => {})
+  }, [])
 
   // 並列で stats / templates / tags を取得（リグレッションを起こさないよう失敗は無視）
   useEffect(() => {
@@ -231,6 +347,7 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
       if (res.success) {
         setEditing(false)
         loadScenario()
+        setScenarioList((list) => list.map((s) => (s.id === id ? { ...s, name: editForm.name, isActive: editForm.isActive } : s)))
       } else {
         setError(res.error)
       }
@@ -244,13 +361,16 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
   const openAddStep = () => {
     const nextOrder = scenario ? (scenario.steps.length > 0 ? Math.max(...scenario.steps.map(s => s.stepOrder)) + 1 : 1) : 1
     setStepForm(emptyStepForm(nextOrder))
-    setEditingStepId(null)
+    setSelectedStepId(null)
     setShowStepForm(true)
     setStepError('')
   }
 
   const openEditStep = (step: ScenarioStep) => {
     const ui = uiFromOffsetMinutes(step.offsetMinutes)
+    const sourceMessages = step.messages.length > 0
+      ? step.messages
+      : [{ id: null, orderIndex: 0, messageType: step.messageType, messageContent: step.messageContent, templateId: step.templateId ?? null }]
     setStepForm({
       stepOrder: step.stepOrder,
       schedule: {
@@ -260,39 +380,51 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
         offsetMinutesRemainder: ui.offsetMinutesRemainder,
         deliveryTime: step.deliveryTime ?? '09:00',
       },
-      messageType: step.messageType,
-      messageContent: step.messageContent,
-      templateId: step.templateId ?? null,
+      bubbles: sourceMessages.map((m) => ({
+        messageType: m.messageType,
+        messageContent: m.messageContent,
+        templateId: m.templateId ?? null,
+        inputMode: m.templateId ? 'template' : 'direct',
+      })),
       onReachTagId: step.onReachTagId ?? null,
-      inputMode: step.templateId ? 'template' : 'direct',
     })
-    setEditingStepId(step.id)
+    setSelectedStepId(step.id)
     setShowStepForm(true)
     setStepError('')
   }
 
+  const addBubble = () => {
+    setStepForm((f) => (f.bubbles.length >= MAX_BUBBLES ? f : { ...f, bubbles: [...f.bubbles, emptyBubble()] }))
+  }
+  const removeBubble = (index: number) => {
+    setStepForm((f) => ({ ...f, bubbles: f.bubbles.filter((_, i) => i !== index) }))
+  }
+  const updateBubble = (index: number, patch: Partial<BubbleFormState>) => {
+    setStepForm((f) => {
+      const bubbles = [...f.bubbles]
+      bubbles[index] = { ...bubbles[index], ...patch }
+      return { ...f, bubbles }
+    })
+  }
+
   const handleSaveStep = async () => {
-    // 直接入力モード: messageContent 必須 + Flex/画像 は JSON parse 検証
-    if (stepForm.inputMode === 'direct') {
-      if (!stepForm.messageContent.trim()) {
-        setStepError('メッセージ内容を入力してください')
-        return
-      }
-      if (stepForm.messageType === 'flex' || stepForm.messageType === 'image') {
-        try {
-          JSON.parse(stepForm.messageContent)
-        } catch {
-          setStepError(
-            stepForm.messageType === 'flex'
-              ? 'Flex メッセージの JSON が不正です'
-              : '画像メッセージの JSON が不正です',
-          )
+    for (let i = 0; i < stepForm.bubbles.length; i++) {
+      const b = stepForm.bubbles[i]
+      if (b.inputMode === 'direct') {
+        if (!b.messageContent.trim()) {
+          setStepError(`フキダシ${i + 1}: メッセージ内容を入力してください`)
           return
         }
-      }
-    } else {
-      if (!stepForm.templateId) {
-        setStepError('テンプレートを選択してください')
+        if (b.messageType === 'flex' || b.messageType === 'image') {
+          try {
+            JSON.parse(b.messageContent)
+          } catch {
+            setStepError(`フキダシ${i + 1}: ${b.messageType === 'flex' ? 'Flex' : '画像'}メッセージの JSON が不正です`)
+            return
+          }
+        }
+      } else if (!b.templateId) {
+        setStepError(`フキダシ${i + 1}: テンプレートを選択してください`)
         return
       }
     }
@@ -300,33 +432,21 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
     setStepError('')
     try {
       const schedulePayload = buildSchedulePayload(deliveryMode, stepForm.schedule)
-      // テンプレモード保存時は、選択中テンプレ内容を scenario_steps の messageType /
-      // messageContent にスナップショットコピーする。テンプレ削除時に resolveStepContent
-      // がここから正しい内容にフォールバックできるため。
-      let payloadMessageType: MessageType = stepForm.messageType
-      let payloadMessageContent: string = stepForm.messageContent || ' '
-      if (stepForm.inputMode === 'template' && stepForm.templateId) {
-        const tpl = templates.find((t) => t.id === stepForm.templateId)
-        if (tpl) {
-          // messageType: テンプレが image/carousel のときは scenario_steps の CHECK に
-          // ('text','image','flex') の制約があるため text/image/flex のみ許容。
-          // carousel が来る可能性は低いが念のため text にフォールバック。
-          payloadMessageType = (['text', 'image', 'flex'].includes(tpl.messageType)
-            ? tpl.messageType
-            : 'text') as MessageType
-          payloadMessageContent = tpl.messageContent || ' '
-        }
-      }
+      // テンプレートモードは templateId だけ送れば良い (サーバー側でテンプレ本文へスナップショットする)。
+      const messages = stepForm.bubbles.map((b) =>
+        b.inputMode === 'template' && b.templateId
+          ? { templateId: b.templateId }
+          : { messageType: b.messageType, messageContent: b.messageContent || ' ', templateId: null },
+      )
       const payload = {
         stepOrder: stepForm.stepOrder,
         ...schedulePayload,
-        messageType: payloadMessageType,
-        messageContent: payloadMessageContent,
-        templateId: stepForm.inputMode === 'template' ? stepForm.templateId : null,
+        messages,
         onReachTagId: stepForm.onReachTagId,
       }
-      if (editingStepId) {
-        const res = await api.scenarios.updateStep(id, editingStepId, payload)
+      let savedId = selectedStepId
+      if (selectedStepId) {
+        const res = await api.scenarios.updateStep(id, selectedStepId, payload)
         if (!res.success) {
           setStepError(res.error)
           return
@@ -337,9 +457,9 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
           setStepError(res.error)
           return
         }
+        savedId = res.data.id
       }
-      setShowStepForm(false)
-      setEditingStepId(null)
+      setSelectedStepId(savedId)
       loadScenario()
       reloadStats()
     } catch {
@@ -353,27 +473,33 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
     if (!confirm('このステップを削除してもよいですか？')) return
     try {
       await api.scenarios.deleteStep(id, stepId)
+      if (stepId === selectedStepId) {
+        setSelectedStepId(null)
+        setShowStepForm(false)
+      }
       loadScenario()
+      reloadStats()
     } catch {
       setError('ステップの削除に失敗しました')
     }
   }
 
-  const handleMoveStep = async (stepId: string, direction: 'up' | 'down') => {
-    if (!scenario) return
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+
+  const handleStepDragEnd = async (e: DragEndEvent) => {
+    const { active, over } = e
+    if (!over || active.id === over.id || !scenario) return
     const sorted = [...scenario.steps].sort((a, b) => a.stepOrder - b.stepOrder)
-    const idx = sorted.findIndex((s) => s.id === stepId)
-    const swap = direction === 'up' ? idx - 1 : idx + 1
-    if (idx < 0 || swap < 0 || swap >= sorted.length) return
-    const a = sorted[idx]
-    const b = sorted[swap]
+    const oldIndex = sorted.findIndex((s) => s.id === active.id)
+    const newIndex = sorted.findIndex((s) => s.id === over.id)
+    if (oldIndex < 0 || newIndex < 0) return
+    const reordered = arrayMove(sorted, oldIndex, newIndex)
     try {
-      await api.scenarios.reorderSteps(id, [
-        { stepId: a.id, stepOrder: b.stepOrder },
-        { stepId: b.id, stepOrder: a.stepOrder },
-      ])
+      await api.scenarios.reorderSteps(id, reordered.map((s, i) => ({ stepId: s.id, stepOrder: i + 1 })))
       loadScenario()
-      // 到達率バッジは stepOrder ベースでマッチングするので、並び替え後は stats も再取得
       reloadStats()
     } catch {
       setError('並び替えに失敗しました')
@@ -409,6 +535,16 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
 
   const sortedSteps = [...scenario.steps].sort((a, b) => a.stepOrder - b.stepOrder)
   const modeBadge = modeBadgeStyle[deliveryMode]
+
+  const stepPreview = (step: ScenarioStep): string => {
+    const first = step.messages[0]
+    const content = first ? first.messageContent : step.messageContent
+    const type = first ? first.messageType : step.messageType
+    if (type === 'text') return content
+    if (type === 'flex') return '[Flex メッセージ]'
+    if (type === 'image') return '[画像]'
+    return content
+  }
 
   return (
     <div>
@@ -448,223 +584,272 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
         </div>
       )}
 
-      {/* Scenario Info */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-        {editing ? (
-          <div className="space-y-4 max-w-lg">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">シナリオ名 <span className="text-red-500">*</span></label>
-              <input
-                type="text"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                value={editForm.name}
-                onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">説明</label>
-              <textarea
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 resize-none"
-                rows={2}
-                value={editForm.description}
-                onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">トリガー</label>
-              <select
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
-                value={editForm.triggerType}
-                onChange={(e) => setEditForm({ ...editForm, triggerType: e.target.value as ScenarioTriggerType })}
-              >
-                {triggerOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="editIsActive"
-                checked={editForm.isActive}
-                onChange={(e) => setEditForm({ ...editForm, isActive: e.target.checked })}
-                className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
-              />
-              <label htmlFor="editIsActive" className="text-sm text-gray-600">有効</label>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={handleSaveScenario}
-                disabled={saving}
-                className="px-4 py-2 min-h-[44px] text-sm font-medium text-white rounded-lg disabled:opacity-50 transition-opacity"
-                style={{ backgroundColor: '#06C755' }}
-              >
-                {saving ? '保存中...' : '保存'}
-              </button>
-              <button
-                onClick={() => {
-                  setEditing(false)
-                  setEditForm({
-                    name: scenario.name,
-                    description: scenario.description ?? '',
-                    triggerType: scenario.triggerType,
-                    isActive: scenario.isActive,
-                  })
-                }}
-                className="px-4 py-2 min-h-[44px] text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-              >
-                キャンセル
-              </button>
-            </div>
+      {/* 3カラムレイアウト (デスクトップ幅 lg+)。狭い画面では縦積みにフォールバック。 */}
+      <div className="flex flex-col lg:flex-row gap-4 lg:items-start">
+        {/* Column 1: シナリオ一覧 */}
+        <div className="w-full lg:w-56 lg:shrink-0 bg-white rounded-lg shadow-sm border border-gray-200 lg:max-h-[calc(100vh-200px)] lg:overflow-y-auto">
+          <div className="p-3 border-b border-gray-100">
+            <Link href="/scenarios" className="text-xs text-green-600 hover:underline">配信シナリオ一覧</Link>
           </div>
-        ) : (
-          <div>
-            <div className="flex items-start justify-between gap-4 mb-3">
-              <h2 className="text-lg font-semibold text-gray-900">{scenario.name}</h2>
-              <div className="flex items-center gap-2">
-                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${modeBadge.bg} ${modeBadge.text}`}>
-                  {modeBadge.label}
-                </span>
-                <span
-                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                    scenario.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                  }`}
-                >
-                  {scenario.isActive ? '有効' : '無効'}
-                </span>
-                <button
-                  onClick={() => setEditing(true)}
-                  className="text-xs font-medium text-green-600 hover:text-green-700 px-3 py-1.5 rounded-md hover:bg-green-50 transition-colors"
-                >
-                  編集
-                </button>
-              </div>
-            </div>
-            {scenario.description && (
-              <p className="text-sm text-gray-500 mb-3">{scenario.description}</p>
-            )}
-            <div className="flex items-center gap-4 text-xs text-gray-500 flex-wrap">
-              <span>トリガー: {triggerOptions.find(o => o.value === scenario.triggerType)?.label ?? scenario.triggerType}</span>
-              <span>ステップ数: {scenario.steps.length}</span>
-              <span>作成日: {new Date(scenario.createdAt).toLocaleDateString('ja-JP')}</span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Steps */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-gray-800">ステップ一覧</h3>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setPreviewOpen(true)}
-              disabled={sortedSteps.length === 0}
-              className="px-3 py-1.5 min-h-[44px] text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-40"
-            >
-              一括プレビュー
-            </button>
-            <button
-              onClick={openAddStep}
-              className="px-3 py-1.5 min-h-[44px] text-sm font-medium text-white rounded-lg transition-opacity hover:opacity-90"
-              style={{ backgroundColor: '#06C755' }}
-            >
-              + ステップ追加
-            </button>
+          <div className="divide-y divide-gray-100">
+            {scenarioList.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => { if (s.id !== id) router.push(`/scenarios/detail?id=${s.id}`) }}
+                className={`block w-full text-left px-3 py-2.5 text-sm transition-colors ${
+                  s.id === id ? 'bg-green-50 text-green-800 font-medium' : 'hover:bg-gray-50 text-gray-700'
+                }`}
+              >
+                {s.name}
+                {!s.isActive && <span className="ml-1 text-[10px] text-gray-400">(無効)</span>}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Step form */}
-        {showStepForm && (
-          <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-            <h4 className="text-sm font-medium text-gray-700 mb-3">
-              {editingStepId ? 'ステップを編集' : '新しいステップを追加'}
-            </h4>
-            <div className="space-y-3 max-w-lg">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">ステップ順序</label>
-                <input
-                  type="number"
-                  min={1}
-                  className="w-32 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                  value={stepForm.stepOrder}
-                  onChange={(e) => setStepForm({ ...stepForm, stepOrder: Number(e.target.value) })}
-                />
+        {/* Column 2: シナリオ情報 + ステップ一覧 (ドラッグ&ドロップで並び替え) */}
+        <div className="w-full lg:w-[360px] lg:shrink-0 space-y-4">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+            {editing ? (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">シナリオ名 <span className="text-red-500">*</span></label>
+                  <input
+                    type="text"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    value={editForm.name}
+                    onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">説明</label>
+                  <textarea
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 resize-none"
+                    rows={2}
+                    value={editForm.description}
+                    onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">トリガー</label>
+                  <select
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
+                    value={editForm.triggerType}
+                    onChange={(e) => setEditForm({ ...editForm, triggerType: e.target.value as ScenarioTriggerType })}
+                  >
+                    {triggerOptions.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="editIsActive"
+                    checked={editForm.isActive}
+                    onChange={(e) => setEditForm({ ...editForm, isActive: e.target.checked })}
+                    className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                  />
+                  <label htmlFor="editIsActive" className="text-sm text-gray-600">有効</label>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleSaveScenario}
+                    disabled={saving}
+                    className="px-4 py-2 min-h-[44px] text-sm font-medium text-white rounded-lg disabled:opacity-50 transition-opacity"
+                    style={{ backgroundColor: '#06C755' }}
+                  >
+                    {saving ? '保存中...' : '保存'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setEditing(false)
+                      setEditForm({
+                        name: scenario.name,
+                        description: scenario.description ?? '',
+                        triggerType: scenario.triggerType,
+                        isActive: scenario.isActive,
+                      })
+                    }}
+                    className="px-4 py-2 min-h-[44px] text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                  >
+                    キャンセル
+                  </button>
+                </div>
               </div>
+            ) : (
+              <div>
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <h2 className="text-base font-semibold text-gray-900 break-words">{scenario.name}</h2>
+                  <button
+                    onClick={() => setEditing(true)}
+                    className="text-xs font-medium text-green-600 hover:text-green-700 px-2 py-1 rounded-md hover:bg-green-50 transition-colors shrink-0"
+                  >
+                    編集
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 mb-2 flex-wrap">
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${modeBadge.bg} ${modeBadge.text}`}>
+                    {modeBadge.label}
+                  </span>
+                  <span
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      scenario.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                    }`}
+                  >
+                    {scenario.isActive ? '有効' : '無効'}
+                  </span>
+                </div>
+                {scenario.description && (
+                  <p className="text-xs text-gray-500 mb-2">{scenario.description}</p>
+                )}
+                <p className="text-xs text-gray-500">
+                  トリガー: {triggerOptions.find(o => o.value === scenario.triggerType)?.label ?? scenario.triggerType}
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-800">ステップ一覧</h3>
+              <div className="flex gap-1">
+                <button
+                  onClick={() => setPreviewOpen(true)}
+                  disabled={sortedSteps.length === 0}
+                  className="px-2 py-1.5 min-h-[36px] text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-40"
+                >
+                  プレビュー
+                </button>
+                <button
+                  onClick={openAddStep}
+                  className="px-2 py-1.5 min-h-[36px] text-xs font-medium text-white rounded-lg transition-opacity hover:opacity-90"
+                  style={{ backgroundColor: '#06C755' }}
+                >
+                  + 追加
+                </button>
+              </div>
+            </div>
+
+            {sortedSteps.length === 0 ? (
+              <div className="text-center py-8 text-gray-400 text-xs">
+                ステップがありません。「+ 追加」から追加してください。
+              </div>
+            ) : (
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleStepDragEnd}>
+                <SortableContext items={sortedSteps.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+                  <div className="space-y-2">
+                    {sortedSteps.map((step) => (
+                      <SortableStepRow
+                        key={step.id}
+                        step={step}
+                        selected={step.id === selectedStepId && showStepForm}
+                        scheduleLabel={formatScheduleLabel(deliveryMode, step)}
+                        bubbleCount={step.messages.length}
+                        preview={stepPreview(step)}
+                        stat={stats?.steps.find((s) => s.stepOrder === step.stepOrder)}
+                        onSelect={() => openEditStep(step)}
+                        onDelete={() => handleDeleteStep(step.id)}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
+            )}
+          </div>
+        </div>
+
+        {/* Column 3: 選択中ステップの編集 (複数フキダシ対応) */}
+        <div className="w-full lg:flex-1 bg-white rounded-lg shadow-sm border border-gray-200 p-4 lg:max-h-[calc(100vh-200px)] lg:overflow-y-auto">
+          {!showStepForm ? (
+            <div className="text-center text-gray-400 text-sm py-16">
+              左の一覧からステップを選択するか、「+ 追加」で新しいステップを作成してください
+            </div>
+          ) : (
+            <div className="space-y-4 max-w-xl">
+              <h4 className="text-sm font-medium text-gray-700">
+                {selectedStepId ? `ステップ ${stepForm.stepOrder} を編集` : '新しいステップを追加'}
+              </h4>
+
               <ScheduleInput
                 mode={deliveryMode}
                 value={stepForm.schedule}
                 onChange={(schedule) => setStepForm({ ...stepForm, schedule })}
               />
 
-              {/* 入力モード切替: 直接入力 / テンプレート参照 */}
-              <div className="space-y-2">
-                <label className="block text-xs font-medium text-gray-600">メッセージの指定方法</label>
-                <div className="flex gap-4 text-sm">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      checked={stepForm.inputMode === 'direct'}
-                      onChange={() => setStepForm({ ...stepForm, inputMode: 'direct', templateId: null })}
-                    />
-                    <span>直接入力</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      checked={stepForm.inputMode === 'template'}
-                      onChange={() => setStepForm({ ...stepForm, inputMode: 'template' })}
-                    />
-                    <span>テンプレートを使う</span>
-                  </label>
-                </div>
-              </div>
+              <div className="space-y-3">
+                {stepForm.bubbles.map((bubble, i) => (
+                  <div key={i} className="border border-gray-200 rounded-lg p-3 space-y-2 bg-gray-50">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-gray-700">フキダシ{i + 1}</span>
+                      {stepForm.bubbles.length > 1 && (
+                        <button onClick={() => removeBubble(i)} className="text-xs text-red-500 hover:text-red-700">削除</button>
+                      )}
+                    </div>
+                    <div className="flex gap-4 text-xs">
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          checked={bubble.inputMode === 'direct'}
+                          onChange={() => updateBubble(i, { inputMode: 'direct', templateId: null })}
+                        />
+                        <span>直接入力</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="radio"
+                          checked={bubble.inputMode === 'template'}
+                          onChange={() => updateBubble(i, { inputMode: 'template' })}
+                        />
+                        <span>テンプレートを使う</span>
+                      </label>
+                    </div>
+                    {bubble.inputMode === 'template' ? (
+                      <select
+                        value={bubble.templateId ?? ''}
+                        onChange={(e) => updateBubble(i, { templateId: e.target.value || null })}
+                        className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs bg-white"
+                      >
+                        <option value="">-- 選択してください --</option>
+                        {templates.map((t) => (
+                          <option key={t.id} value={t.id}>{t.name}{t.category ? ` (${t.category})` : ''}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <>
+                        <select
+                          value={bubble.messageType}
+                          onChange={(e) => updateBubble(i, { messageType: e.target.value as MessageType })}
+                          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs bg-white"
+                        >
+                          {messageTypeOptions.map((opt) => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </select>
+                        <textarea
+                          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs resize-none"
+                          rows={3}
+                          placeholder="メッセージ内容を入力..."
+                          value={bubble.messageContent}
+                          onChange={(e) => updateBubble(i, { messageContent: e.target.value })}
+                        />
+                      </>
+                    )}
+                  </div>
+                ))}
 
-              {stepForm.inputMode === 'template' && (
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">テンプレート <span className="text-red-500">*</span></label>
-                  <select
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
-                    value={stepForm.templateId ?? ''}
-                    onChange={(e) => setStepForm({ ...stepForm, templateId: e.target.value || null })}
+                {stepForm.bubbles.length < MAX_BUBBLES ? (
+                  <button
+                    onClick={addBubble}
+                    className="w-full text-sm font-medium text-white rounded-lg py-2 transition-opacity hover:opacity-90"
+                    style={{ backgroundColor: '#06C755' }}
                   >
-                    <option value="">-- 選択してください --</option>
-                    {templates.map((t) => (
-                      <option key={t.id} value={t.id}>{t.name}{t.category ? ` (${t.category})` : ''}</option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-amber-700 mt-1">
-                    ⓘ テンプレートが修正されると、このステップの内容も自動で同期されます
-                  </p>
-                </div>
-              )}
-
-              {stepForm.inputMode === 'direct' && (
-                <>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">メッセージタイプ</label>
-                    <select
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
-                      value={stepForm.messageType}
-                      onChange={(e) => setStepForm({ ...stepForm, messageType: e.target.value as MessageType })}
-                    >
-                      {messageTypeOptions.map((opt) => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">メッセージ内容 <span className="text-red-500">*</span></label>
-                    <textarea
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 resize-none"
-                      rows={4}
-                      placeholder="メッセージ内容を入力..."
-                      value={stepForm.messageContent}
-                      onChange={(e) => setStepForm({ ...stepForm, messageContent: e.target.value })}
-                    />
-                  </div>
-                </>
-              )}
+                    + フキダシを追加する
+                  </button>
+                ) : (
+                  <p className="text-xs text-amber-700">ⓘ LINE仕様により1ステップに送れるフキダシは最大{MAX_BUBBLES}個までです</p>
+                )}
+              </div>
 
               {/* 到達時のアクション */}
               <div className="pt-3 border-t border-gray-200 space-y-2">
@@ -696,125 +881,41 @@ export default function ScenarioDetailClient({ scenarioId }: { scenarioId: strin
                   className="px-4 py-2 min-h-[44px] text-sm font-medium text-white rounded-lg disabled:opacity-50 transition-opacity"
                   style={{ backgroundColor: '#06C755' }}
                 >
-                  {stepSaving ? '保存中...' : editingStepId ? '更新' : '追加'}
+                  {stepSaving ? '保存中...' : selectedStepId ? '更新' : '追加'}
                 </button>
                 <button
-                  onClick={() => { setShowStepForm(false); setEditingStepId(null); setStepError('') }}
+                  onClick={() => { setShowStepForm(false); setSelectedStepId(null); setStepError('') }}
                   className="px-4 py-2 min-h-[44px] text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
                 >
                   キャンセル
                 </button>
               </div>
-            </div>
-          </div>
-        )}
 
-        {/* Steps list */}
-        {sortedSteps.length === 0 ? (
-          <div className="text-center py-8 text-gray-400 text-sm">
-            ステップがありません。「+ ステップ追加」から追加してください。
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {sortedSteps.map((step, idx) => (
-              <div
-                key={step.id}
-                className="border border-gray-200 rounded-lg p-4 hover:border-gray-300 transition-colors"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3 mb-2 flex-wrap">
-                      <span
-                        className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold text-white shrink-0"
-                        style={{ backgroundColor: '#06C755' }}
-                      >
-                        {step.stepOrder}
-                      </span>
-                      <span className="text-xs text-gray-500">{formatScheduleLabel(deliveryMode, step)}</span>
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                        step.messageType === 'text' ? 'bg-blue-50 text-blue-600' :
-                        step.messageType === 'image' ? 'bg-purple-50 text-purple-600' :
-                        'bg-orange-50 text-orange-600'
-                      }`}>
-                        {messageTypeOptions.find(o => o.value === step.messageType)?.label ?? step.messageType}
-                      </span>
-                      {(() => {
-                        const stat = stats?.steps.find((s) => s.stepOrder === step.stepOrder)
-                        return stat ? (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-50 text-purple-700">
-                            📊 {stat.reachedCount}人到達 ({Math.round(stat.reachRate * 100)}%)
-                          </span>
-                        ) : null
-                      })()}
-                    </div>
-                    {(() => {
-                      // テンプレ参照時は、表示も「現在のテンプレ内容」を見せる。
-                      // (templates state には list で取得済みの最新内容が入っている)
-                      const tpl = step.templateId ? templates.find((t) => t.id === step.templateId) : null
-                      const displayType = tpl ? tpl.messageType : step.messageType
-                      const displayContent = tpl ? tpl.messageContent : step.messageContent
-                      return (
-                        <div className="text-sm text-gray-700 bg-gray-50 rounded-md px-3 py-2">
-                          {displayType === 'text' ? (
-                            <p className="whitespace-pre-wrap break-words">{displayContent}</p>
-                          ) : displayType === 'flex' ? (
-                            <FlexPreview content={displayContent} />
-                          ) : displayType === 'image' ? (
-                            <ImagePreview content={displayContent} />
-                          ) : (
-                            <p className="whitespace-pre-wrap break-words">{displayContent}</p>
-                          )}
-                        </div>
-                      )
-                    })()}
-                    {step.templateId && (
-                      <p className="mt-2 text-xs text-amber-700">
-                        📋 テンプレ: {templates.find((t) => t.id === step.templateId)?.name ?? step.templateId}
-                      </p>
-                    )}
-                    {step.onReachTagId && (
-                      <p className="mt-1 text-xs text-green-700">
-                        🏷 到達タグ: {tags.find((t) => t.id === step.onReachTagId)?.name ?? step.onReachTagId}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex flex-col items-stretch gap-1 shrink-0">
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => handleMoveStep(step.id, 'up')}
-                        disabled={idx === 0}
-                        className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
-                        aria-label="上へ"
-                      >
-                        ↑
-                      </button>
-                      <button
-                        onClick={() => handleMoveStep(step.id, 'down')}
-                        disabled={idx === sortedSteps.length - 1}
-                        className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
-                        aria-label="下へ"
-                      >
-                        ↓
-                      </button>
-                    </div>
-                    <button
-                      onClick={() => openEditStep(step)}
-                      className="text-xs text-green-600 hover:text-green-700 px-2 py-1 rounded hover:bg-green-50 transition-colors"
-                    >
-                      編集
-                    </button>
-                    <button
-                      onClick={() => handleDeleteStep(step.id)}
-                      className="text-xs text-red-500 hover:text-red-700 px-2 py-1 rounded hover:bg-red-50 transition-colors"
-                    >
-                      削除
-                    </button>
-                  </div>
+              {/* 現在の内容のプレビュー (直接入力モードのフキダシのみ) */}
+              {stepForm.bubbles.some((b) => b.inputMode === 'direct' && b.messageContent) && (
+                <div className="pt-3 border-t border-gray-200 space-y-2">
+                  <h4 className="text-xs font-semibold text-gray-700">プレビュー</h4>
+                  {stepForm.bubbles.map((b, i) => {
+                    if (b.inputMode !== 'direct' || !b.messageContent) return null
+                    return (
+                      <div key={i} className="text-sm text-gray-700 bg-gray-50 rounded-md px-3 py-2">
+                        {b.messageType === 'text' ? (
+                          <p className="whitespace-pre-wrap break-words">{b.messageContent}</p>
+                        ) : b.messageType === 'flex' ? (
+                          <FlexPreview content={b.messageContent} />
+                        ) : b.messageType === 'image' ? (
+                          <ImagePreview content={b.messageContent} />
+                        ) : (
+                          <p className="whitespace-pre-wrap break-words">{b.messageContent}</p>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <BulkPreviewModal

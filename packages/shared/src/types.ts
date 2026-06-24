@@ -146,6 +146,17 @@ export interface Scenario {
 /** メッセージ種別 */
 export type MessageType = "text" | "image" | "flex";
 
+/** 1ステップ内の1フキダシ。LINE公式の1回push上限により1ステップ最大5件。 */
+export interface ScenarioStepMessage {
+  /** scenario_step_messages の主キー。legacy列から合成したフォールバック行は null。 */
+  id: string | null;
+  /** 表示・送信順 (0始まり) */
+  orderIndex: number;
+  messageType: MessageType;
+  messageContent: string;
+  templateId?: string | null;
+}
+
 export interface ScenarioStep {
   /** 主キー (UUIDv4) */
   id: string;
@@ -161,16 +172,18 @@ export interface ScenarioStep {
   offsetMinutes?: number | null;
   /** 配信時刻 "HH:MM" (JST) — absolute_time mode 用 */
   deliveryTime?: string | null;
-  /** 参照するテンプレート ID (null = 直接入力モード) */
+  /** 参照するテンプレート ID (null = 直接入力モード) — messages[0] のテンプレIDと同じ */
   templateId?: string | null;
   /** このステップ到達時に付与するタグ ID */
   onReachTagId?: string | null;
-  /** メッセージ種別 */
+  /** メッセージ種別 — messages[0] と同じ (後方互換用) */
   messageType: MessageType;
-  /** メッセージ内容 (テキスト or JSONシリアライズ済みFlexメッセージ等) */
+  /** メッセージ内容 — messages[0] と同じ (後方互換用) */
   messageContent: string;
   /** 作成日時 (ISO 8601) */
   createdAt: string;
+  /** このステップで送る全フキダシ (1〜5件、順番に1回のpushでまとめて送信される) */
+  messages: ScenarioStepMessage[];
 }
 
 /** シナリオ到達率ダッシュボード */

@@ -621,7 +621,7 @@ async function scheduled(
     console.error('Insight fetch error:', e);
   }
 
-  // Booking reminders — every 5-minute tick scans due reminders.
+  // Booking reminders — every 1-minute tick scans due reminders.
   try {
     const result = await processDueReminders(env.DB, {
       now: new Date(),
@@ -650,7 +650,7 @@ async function scheduled(
     }
   }
 
-  // Event-booking reminders — every 5-minute tick scans due reminders.
+  // Event-booking reminders — every 1-minute tick scans due reminders.
   try {
     const result = await processDueEventReminders(env.DB, {
       now: new Date(),
@@ -675,7 +675,7 @@ async function scheduled(
     }
   }
 
-  // Stamp card / coupon expiry reminders — every 5-minute tick scans due cards & coupons.
+  // Stamp card / coupon expiry reminders — every 1-minute tick scans due cards & coupons.
   try {
     const result = await processCardCouponExpiryReminders(env.DB, {
       now: new Date(),
@@ -688,7 +688,7 @@ async function scheduled(
     console.error('card-coupon-reminders error:', e);
   }
 
-  // 天候連動ポイント倍率の自動ON/OFF — 5分tickに乗せるが内部で店舗ごとに約30分間隔へ自己スロットル。
+  // 天候連動ポイント倍率の自動ON/OFF — 1分tickに乗せるが内部で店舗ごとに約30分間隔へ自己スロットル。
   try {
     const result = await processWeatherMultiplierToggles(env.DB, new Date());
     if (result.checked > 0) {

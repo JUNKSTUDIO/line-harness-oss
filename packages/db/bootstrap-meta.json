@@ -70,7 +70,8 @@
     "062_friend_add_coupon.sql",
     "063_friend_add_coupon_log.sql",
     "064_business_calendar.sql",
-    "065_form_result_message.sql"
+    "065_form_result_message.sql",
+    "066_scenario_step_messages.sql"
   ],
-  "migrationCount": 71
+  "migrationCount": 72
 }

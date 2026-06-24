@@ -10,6 +10,7 @@ import {
   computeNextDeliveryAt,
   resolveStepContent,
   addTagToFriend,
+  getScenarioStepMessages,
   type DeliveryMode,
 } from '@line-crm/db';
 import type { LineClient } from '@line-crm/line-sdk';
@@ -207,23 +208,38 @@ async function processSingleDelivery(
     }
   }
 
-  // Resolve template_id → templates table (参照型). template_id 未設定なら step 値そのまま。
-  const resolved = await resolveStepContent(db, currentStep);
+  // 1ステップ内の複数フキダシ (LINE仕様上限5件) を取得。scenario_step_messages に
+  // まだ無い場合 (移行前データ等) は legacy 列から1件分にフォールバックする。
+  const stepMessages = await getScenarioStepMessages(db, currentStep.id);
+  const bubbleSources =
+    stepMessages.length > 0
+      ? stepMessages
+      : [{ template_id: currentStep.template_id, message_type: currentStep.message_type, message_content: currentStep.message_content }];
 
   // Expand template variables ({{name}}, {{uid}}, {{auth_url:CHANNEL_ID}}, {{metadata.KEY}}, etc.)
   const resolvedMeta = await resolveMetadata(db, { user_id: (friend as unknown as Record<string, string | null>).user_id, metadata: (friend as unknown as Record<string, string | null>).metadata });
   const friendWithMeta = { ...friend, metadata: resolvedMeta } as Parameters<typeof expandVariables>[1];
-  const expandedContent = expandVariables(resolved.messageContent, friendWithMeta, workerUrl);
-  // Auto-wrap URLs with tracking links (text with URLs → Flex with button)
-  let trackedType: string = resolved.messageType;
-  let trackedContent = expandedContent;
-  if (workerUrl) {
-    const { autoTrackContent } = await import('./auto-track.js');
-    const tracked = await autoTrackContent(db, resolved.messageType, expandedContent, workerUrl);
-    trackedType = tracked.messageType;
-    trackedContent = tracked.content;
+
+  // フキダシごとに template 解決 → 変数展開 → URLトラッキング → LINE Message 化。
+  const messages: Message[] = [];
+  const logEntries: Array<{ messageType: string; content: string; templateIdAtSend: string | null }> = [];
+  for (const bubble of bubbleSources) {
+    const resolved = await resolveStepContent(db, bubble);
+    const expandedContent = expandVariables(resolved.messageContent, friendWithMeta, workerUrl);
+    let trackedType: string = resolved.messageType;
+    let trackedContent = expandedContent;
+    if (workerUrl) {
+      const { autoTrackContent } = await import('./auto-track.js');
+      const tracked = await autoTrackContent(db, resolved.messageType, expandedContent, workerUrl);
+      trackedType = tracked.messageType;
+      trackedContent = tracked.content;
+    }
+    const message = buildMessage(trackedType, trackedContent);
+    messages.push(message);
+    const logPayload = messageToLogPayload(message);
+    logEntries.push({ ...logPayload, templateIdAtSend: resolved.templateIdAtSend });
   }
-  const message = buildMessage(trackedType, trackedContent);
+
   // Resolve the correct LINE client for this friend's account
   let deliveryClient = lineClient;
   const friendAccountId = (friend as unknown as Record<string, string | null>).line_account_id;
@@ -235,20 +251,23 @@ async function processSingleDelivery(
       deliveryClient = new LC(account.channel_access_token);
     }
   }
-  await deliveryClient.pushMessage(friend.line_user_id, [message]);
+  // 1ステップの全フキダシ (最大5件) を1回のpushでまとめて送る (LINE公式の1回push上限と同じ)。
+  await deliveryClient.pushMessage(friend.line_user_id, messages);
 
   // Log what we actually pushed: variables expanded, URLs auto-tracked, AND
   // any cleanEmptyNodes() mutation or parse-failure text fallback applied by
   // buildMessage(). Use scenario_step_id to recover the original template.
-  const logId = crypto.randomUUID();
-  const logPayload = messageToLogPayload(message);
-  await db
-    .prepare(
-      `INSERT INTO messages_log (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, source, template_id_at_send, created_at)
-       VALUES (?, ?, 'outgoing', ?, ?, NULL, ?, 'scenario', ?, ?)`,
-    )
-    .bind(logId, friend.id, logPayload.messageType, logPayload.content, currentStep.id, resolved.templateIdAtSend, jstNow())
-    .run();
+  // フキダシ1個 = messages_log 1行 (チャット履歴で個別の発言として表示されるように)。
+  const now = jstNow();
+  for (const entry of logEntries) {
+    await db
+      .prepare(
+        `INSERT INTO messages_log (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, source, template_id_at_send, created_at)
+         VALUES (?, ?, 'outgoing', ?, ?, NULL, ?, 'scenario', ?, ?)`,
+      )
+      .bind(crypto.randomUUID(), friend.id, entry.messageType, entry.content, currentStep.id, entry.templateIdAtSend, now)
+      .run();
+  }
 
   // Determine next step (find the step after currentStep in the sorted list)
   const currentIndex = steps.indexOf(currentStep);

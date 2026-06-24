@@ -358,6 +358,87 @@ export async function getScenarioSteps(
 }
 
 // ============================================================
+// Scenario Step Messages — 1ステップ内の複数フキダシ (LINE仕様上限5件/push)
+// ============================================================
+
+export interface ScenarioStepMessage {
+  id: string;
+  scenario_step_id: string;
+  order_index: number;
+  message_type: MessageType;
+  message_content: string;
+  template_id: string | null;
+  created_at: string;
+}
+
+export const MAX_SCENARIO_STEP_MESSAGES = 5;
+
+export async function getScenarioStepMessages(
+  db: D1Database,
+  scenarioStepId: string,
+): Promise<ScenarioStepMessage[]> {
+  const result = await db
+    .prepare(`SELECT * FROM scenario_step_messages WHERE scenario_step_id = ? ORDER BY order_index ASC`)
+    .bind(scenarioStepId)
+    .all<ScenarioStepMessage>();
+  return result.results;
+}
+
+/** シナリオ全体のステップ一覧表示用に、複数ステップ分のフキダシを一括取得する (N+1回避)。 */
+export async function getScenarioStepMessagesByStepIds(
+  db: D1Database,
+  stepIds: string[],
+): Promise<Map<string, ScenarioStepMessage[]>> {
+  const map = new Map<string, ScenarioStepMessage[]>();
+  if (stepIds.length === 0) return map;
+  const placeholders = stepIds.map(() => '?').join(',');
+  const result = await db
+    .prepare(`SELECT * FROM scenario_step_messages WHERE scenario_step_id IN (${placeholders}) ORDER BY order_index ASC`)
+    .bind(...stepIds)
+    .all<ScenarioStepMessage>();
+  for (const row of result.results) {
+    const list = map.get(row.scenario_step_id) ?? [];
+    list.push(row);
+    map.set(row.scenario_step_id, list);
+  }
+  return map;
+}
+
+export interface ScenarioStepMessageInput {
+  messageType: MessageType;
+  messageContent: string;
+  templateId?: string | null;
+}
+
+/** ステップのフキダシ一覧をまるごと置き換える (既存を削除して新しいリストを挿入、1ステップ最大5件)。 */
+export async function replaceScenarioStepMessages(
+  db: D1Database,
+  scenarioStepId: string,
+  messages: ScenarioStepMessageInput[],
+): Promise<ScenarioStepMessage[]> {
+  if (messages.length === 0) throw new Error('scenario step must have at least 1 message');
+  if (messages.length > MAX_SCENARIO_STEP_MESSAGES) {
+    throw new Error(`scenario step can have at most ${MAX_SCENARIO_STEP_MESSAGES} messages (LINE push limit)`);
+  }
+
+  const now = jstNow();
+  const stmts = [
+    db.prepare(`DELETE FROM scenario_step_messages WHERE scenario_step_id = ?`).bind(scenarioStepId),
+    ...messages.map((m, i) =>
+      db
+        .prepare(
+          `INSERT INTO scenario_step_messages (id, scenario_step_id, order_index, message_type, message_content, template_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(crypto.randomUUID(), scenarioStepId, i, m.messageType, m.messageContent, m.templateId ?? null, now),
+    ),
+  ];
+  await db.batch(stmts);
+
+  return getScenarioStepMessages(db, scenarioStepId);
+}
+
+// ============================================================
 // Friend Scenario Enrollments
 // ============================================================
 
