@@ -539,6 +539,10 @@ async function initStampCard(): Promise<void> {
   } else if (action === 'calendar') {
     // リッチメニューの「営業日カレンダー」ボタン (?page=stamp-card&action=calendar) から開かれた場合。
     mountStampCard(container, ctx, { kind: 'calendar' });
+  } else if (action === 'qr') {
+    // クーポン配布メッセージの「クーポンを使う」ボタン (?page=stamp-card&action=qr) から開かれた場合は、
+    // スタッフがレジで読み取るユーザーQR画面を直接表示する。
+    mountStampCard(container, ctx, { kind: 'qr' });
   } else {
     mountStampCard(container, ctx, { kind: 'card' });
   }

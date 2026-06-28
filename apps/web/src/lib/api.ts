@@ -1267,6 +1267,7 @@ export const api = {
         size: 'large' | 'compact';
         defaultPageId: string | null;
         isDefaultForAll: boolean;
+        showByDefault: boolean;
         status: 'draft' | 'published';
         publishingAt: string | null;
         thumbnailR2Key: string | null;
@@ -1283,6 +1284,7 @@ export const api = {
         size: 'large' | 'compact';
         defaultPageId: string | null;
         isDefaultForAll: boolean;
+        showByDefault: boolean;
         status: 'draft' | 'published';
         publishingAt: string | null;
         createdAt: string;
@@ -1335,6 +1337,7 @@ export const api = {
       name?: string;
       chatBarText?: string;
       isDefaultForAll?: boolean;
+      showByDefault?: boolean;
       pages?: Array<{
         id?: string;
         name: string;

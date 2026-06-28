@@ -735,6 +735,7 @@ CREATE TABLE rich_menu_groups (
   size               TEXT NOT NULL CHECK (size IN ('large','compact')),
   default_page_id    TEXT,
   is_default_for_all INTEGER NOT NULL DEFAULT 0,
+  show_by_default    INTEGER NOT NULL DEFAULT 0,
   status             TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','published')),
   publishing_at      TEXT,
   created_at         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),

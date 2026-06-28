@@ -22,9 +22,9 @@ function stubDB(template: { message_type: string; message_content: string } | nu
 const sampleCoupon = { name: 'ブロンズクリア特典', imageUrl: 'https://example.com/coupon.jpg', expiresAtJst: '2026/7/5' };
 
 describe('sendCouponIssuedNotification', () => {
-  test('sends the fallback text when no message template is configured', async () => {
+  test('sends the fallback text plus a coupon-use button when a liffId is present', async () => {
     const db = stubDB(null);
-    const sent: unknown[] = [];
+    const sent: unknown[][] = [];
     await sendCouponIssuedNotification({
       db,
       channelAccessToken: 'tok',
@@ -33,9 +33,30 @@ describe('sendCouponIssuedNotification', () => {
       messageTemplateId: null,
       fallbackText: '「クーポン」を獲得しました！',
       coupon: sampleCoupon,
-      sender: async (_token, _to, message) => { sent.push(message); },
+      sender: async (_token, _to, messages) => { sent.push(messages); },
     });
-    expect(sent).toEqual([{ type: 'text', text: '「クーポン」を獲得しました！' }]);
+    expect(sent).toHaveLength(1);
+    const batch = sent[0] as Array<{ type: string; altText?: string; contents?: { footer?: { contents: Array<{ action: { type: string; label: string; uri: string } }> } } }>;
+    expect(batch[0]).toEqual({ type: 'text', text: '「クーポン」を獲得しました！' });
+    expect(batch[1].type).toBe('flex');
+    const button = batch[1].contents!.footer!.contents[0].action;
+    expect(button).toEqual({ type: 'uri', label: 'クーポンを使う', uri: 'https://liff.line.me/liff-1?page=stamp-card&action=qr' });
+  });
+
+  test('omits the coupon-use button when the account has no liffId', async () => {
+    const db = stubDB(null);
+    const sent: unknown[][] = [];
+    await sendCouponIssuedNotification({
+      db,
+      channelAccessToken: 'tok',
+      toLineUserId: 'Uxxxx',
+      liffId: null,
+      messageTemplateId: null,
+      fallbackText: '「クーポン」を獲得しました！',
+      coupon: sampleCoupon,
+      sender: async (_token, _to, messages) => { sent.push(messages); },
+    });
+    expect(sent).toEqual([[{ type: 'text', text: '「クーポン」を獲得しました！' }]]);
   });
 
   test('sends the configured flex template instead of the fallback text', async () => {
@@ -50,9 +71,10 @@ describe('sendCouponIssuedNotification', () => {
       messageTemplateId: 'msg-tpl-1',
       fallbackText: 'fallback',
       coupon: sampleCoupon,
-      sender: async (_token, _to, message) => { sent.push(message); },
+      sender: async (_token, _to, messages) => { sent.push(...(messages as typeof sent)); },
     });
-    expect(sent).toHaveLength(1);
+    // クーポン本体 (flex) + 「クーポンを使う」ボタン (flex) の2通。
+    expect(sent).toHaveLength(2);
     expect(sent[0].type).toBe('flex');
     expect(sent[0].contents).toEqual(flexContents);
   });
@@ -68,7 +90,7 @@ describe('sendCouponIssuedNotification', () => {
       messageTemplateId: 'deleted-template-id',
       fallbackText: 'fallback text',
       coupon: sampleCoupon,
-      sender: async (_token, _to, message) => { sent.push(message); },
+      sender: async (_token, _to, messages) => { sent.push(...messages); },
     });
     expect(sent).toEqual([{ type: 'text', text: 'fallback text' }]);
   });
@@ -96,7 +118,7 @@ describe('sendCouponIssuedNotification', () => {
       messageTemplateId: 'msg-tpl-1',
       fallbackText: 'fallback',
       coupon: sampleCoupon,
-      sender: async (_token, _to, message) => { sent.push(message); },
+      sender: async (_token, _to, messages) => { sent.push(...(messages as typeof sent)); },
     });
     const contents = sent[0].contents!;
     expect(contents.hero.url).toBe('https://example.com/coupon.jpg');
@@ -118,7 +140,7 @@ describe('sendCouponIssuedNotification', () => {
       messageTemplateId: 'msg-tpl-1',
       fallbackText: 'fallback',
       coupon: { ...sampleCoupon, imageUrl: null },
-      sender: async (_token, _to, message) => { sent.push(message); },
+      sender: async (_token, _to, messages) => { sent.push(...(messages as typeof sent)); },
     });
     expect(sent[0].contents!.hero.url).toBe('');
   });

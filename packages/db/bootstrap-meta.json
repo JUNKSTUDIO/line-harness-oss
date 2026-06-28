@@ -73,7 +73,8 @@
     "065_form_result_message.sql",
     "066_scenario_step_messages.sql",
     "067_scenario_step_rewards_and_schedule.sql",
-    "068_scenario_step_post_send_actions.sql"
+    "068_scenario_step_post_send_actions.sql",
+    "069_rich_menu_show_by_default.sql"
   ],
-  "migrationCount": 74
+  "migrationCount": 75
 }

@@ -20,6 +20,7 @@ export interface RichMenuGroup {
   size: 'large' | 'compact';
   default_page_id: string | null;
   is_default_for_all: number;
+  show_by_default: number;
   status: 'draft' | 'published';
   publishing_at: string | null;
   created_at: string;
@@ -84,6 +85,7 @@ export interface UpdateRichMenuGroupMetaInput {
   name?: string;
   chatBarText?: string;
   isDefaultForAll?: boolean;
+  showByDefault?: boolean;
 }
 
 export interface RichMenuPageWithAreas extends RichMenuPage {
@@ -258,6 +260,10 @@ export async function updateRichMenuGroupMeta(
   if (patch.isDefaultForAll !== undefined) {
     sets.push('is_default_for_all = ?');
     vals.push(patch.isDefaultForAll ? 1 : 0);
+  }
+  if (patch.showByDefault !== undefined) {
+    sets.push('show_by_default = ?');
+    vals.push(patch.showByDefault ? 1 : 0);
   }
   if (sets.length === 0) return;
   sets.push('updated_at = ?');

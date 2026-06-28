@@ -103,7 +103,7 @@ describe('GET /api/rich-menu-groups', () => {
     dbMocks.getRichMenuGroups.mockResolvedValue([
       {
         id: 'g1', account_id: 'acc-1', name: 'メイン', chat_bar_text: 'メニュー',
-        size: 'large', default_page_id: 'p1', is_default_for_all: 1,
+        size: 'large', default_page_id: 'p1', is_default_for_all: 1, show_by_default: 1,
         status: 'published', publishing_at: null,
         created_at: '2026-05-08T00:00:00.000', updated_at: '2026-05-08T01:00:00.000',
       },
@@ -113,7 +113,7 @@ describe('GET /api/rich-menu-groups', () => {
     const body = (await res.json()) as { data: any[] };
     expect(body.data[0]).toMatchObject({
       id: 'g1', accountId: 'acc-1', chatBarText: 'メニュー',
-      isDefaultForAll: true, status: 'published',
+      isDefaultForAll: true, showByDefault: true, status: 'published',
     });
   });
 });

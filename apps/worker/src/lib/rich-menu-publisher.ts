@@ -35,6 +35,8 @@ export type GroupInput = {
   size: 'large' | 'compact';
   chatBarText: string;
   isDefaultForAll: boolean;
+  // true なら LINE richmenu の `selected` を立て、トークを開いた時点でメニューを展開表示する。
+  showByDefault: boolean;
   pages: PageInput[];
 };
 
@@ -122,7 +124,7 @@ export async function publishRichMenuGroup(
     // 1. richmenu 作成
     const created = await line.createRichMenu({
       size: dimensions,
-      selected: false,
+      selected: group.showByDefault,
       name: `${group.id.slice(0, 8)} - ${page.name}`,
       chatBarText: group.chatBarText,
       areas: page.areas.map((a) => ({

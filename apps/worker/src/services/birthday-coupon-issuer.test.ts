@@ -67,7 +67,7 @@ describe('processBirthdayCoupons', () => {
     const sent: Array<{ to: string; message: { type: string; text?: string } }> = [];
     const result = await processBirthdayCoupons(db, {
       now: new Date('2026-04-10T00:00:00.000Z'),
-      sender: async (_token, to, message) => { sent.push({ to, message }); },
+      sender: async (_token, to, messages) => { sent.push({ to, message: messages[0] as { type: string; text?: string } }); },
     });
     expect(result).toEqual({ issued: 1, failed: 0 });
     expect(sent).toHaveLength(1);

@@ -47,6 +47,7 @@ function serializeGroup(row: RichMenuGroup) {
     size: row.size,
     defaultPageId: row.default_page_id,
     isDefaultForAll: row.is_default_for_all === 1,
+    showByDefault: row.show_by_default === 1,
     status: row.status,
     publishingAt: row.publishing_at,
     createdAt: row.created_at,
@@ -227,6 +228,10 @@ function parsePatchBody(raw: unknown): Parsed<{ meta: UpdateRichMenuGroupMetaInp
   if (r.isDefaultForAll !== undefined) {
     if (typeof r.isDefaultForAll !== 'boolean') return { ok: false, error: 'isDefaultForAll must be boolean' };
     meta.isDefaultForAll = r.isDefaultForAll;
+  }
+  if (r.showByDefault !== undefined) {
+    if (typeof r.showByDefault !== 'boolean') return { ok: false, error: 'showByDefault must be boolean' };
+    meta.showByDefault = r.showByDefault;
   }
   let pages: RichMenuPageInput[] | undefined;
   if (r.pages !== undefined) {
@@ -862,6 +867,7 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/publish', async (c) => {
       size: group.size,
       chatBarText: group.chat_bar_text,
       isDefaultForAll: group.is_default_for_all === 1,
+      showByDefault: group.show_by_default === 1,
       pages: group.pages.map((p) => ({
         id: p.id,
         orderIndex: p.order_index,
@@ -908,6 +914,7 @@ richMenuGroups.post('/api/rich-menu-groups/:groupId/unpublish', async (c) => {
     size: group.size,
     chatBarText: group.chat_bar_text,
     isDefaultForAll: group.is_default_for_all === 1,
+    showByDefault: group.show_by_default === 1,
     pages: group.pages.map((p) => ({
       id: p.id,
       orderIndex: p.order_index,

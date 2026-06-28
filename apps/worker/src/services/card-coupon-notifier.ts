@@ -116,7 +116,31 @@ export async function resolveExtendLiffUrl(
   return envLiffUrl ? `${envLiffUrl}?${params.toString()}` : '#';
 }
 
-export type CouponIssuedSender = (channelAccessToken: string, toLineUserId: string, message: Message) => Promise<unknown>;
+export type CouponIssuedSender = (channelAccessToken: string, toLineUserId: string, messages: Message[]) => Promise<unknown>;
+
+/**
+ * クーポン配布メッセージの末尾に添える「クーポンを使う」ボタン。
+ * タップするとスタンプカードLIFFのQR画面 (action=qr) が開き、
+ * 店舗スタッフがレジで読み取る本人確認QR (grant token) が表示される。
+ * liffId が無いアカウントではQR画面へ遷移できないため null を返してボタンを省く。
+ */
+export function buildCouponUseButtonMessage(liffId: string | null): Message | null {
+  if (!liffId) return null;
+  const qrUrl = `https://liff.line.me/${liffId}?page=stamp-card&action=qr`;
+  const bubble = flexBubble({
+    body: flexBox(
+      'vertical',
+      [flexText('ご利用の際は下のボタンからQRコードをスタッフにお見せください。', { size: 'xs', color: '#64748b', wrap: true, align: 'center' })],
+      { paddingAll: '16px' },
+    ),
+    footer: flexBox(
+      'vertical',
+      [flexButton({ type: 'uri', label: 'クーポンを使う', uri: qrUrl }, { style: 'primary', color: '#06C755' })],
+      { paddingAll: '16px', paddingTop: '0px' },
+    ),
+  });
+  return flexMessage('クーポンを使う', bubble);
+}
 
 /**
  * 管理画面でリッチメッセージを作る際に使える、クーポン発行時だけの差し込みプレースホルダー。
@@ -146,7 +170,7 @@ export async function sendCouponIssuedNotification(params: {
   coupon: { name: string; imageUrl: string | null; expiresAtJst: string };
   sender?: CouponIssuedSender;
 }): Promise<void> {
-  const sender = params.sender ?? ((token, to, message) => new LineClient(token).pushMessage(to, [message]));
+  const sender = params.sender ?? ((token, to, messages) => new LineClient(token).pushMessage(to, messages));
 
   let message: Message = { type: 'text', text: params.fallbackText };
   if (params.messageTemplateId) {
@@ -156,5 +180,8 @@ export async function sendCouponIssuedNotification(params: {
       message = buildMessage(template.message_type, renderedContent);
     }
   }
-  await sender(params.channelAccessToken, params.toLineUserId, message);
+  // クーポン本体メッセージ (テキスト/Flex問わず) の下に「クーポンを使う」ボタンを1つの吹き出しとして添える。
+  const useButton = buildCouponUseButtonMessage(params.liffId);
+  const messages = useButton ? [message, useButton] : [message];
+  await sender(params.channelAccessToken, params.toLineUserId, messages);
 }
